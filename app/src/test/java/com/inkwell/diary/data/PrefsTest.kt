@@ -119,16 +119,20 @@ class PrefsTest {
     }
 
     @Test
-    fun `diary mode defaults are per persona and persist overrides`() {
+    fun `active notebook and fade disclosure preferences persist`() {
         val prefs = Prefs(RuntimeEnvironment.getApplication())
 
-        assertEquals(DiaryMode.Fade, prefs.diaryModeFor(Persona.Whisper))
-        assertEquals(DiaryMode.Manuscript, prefs.diaryModeFor(Persona.Confidant))
-        assertEquals(DiaryMode.Manuscript, prefs.diaryModeFor(Persona.Custom))
+        assertEquals("", prefs.activeNotebookId)
+        assertFalse(prefs.hasSeenFadeDisclosure)
+        assertFalse(prefs.hasNormalizedBlankCustomPersona)
 
-        prefs.setDiaryMode(Persona.Whisper, DiaryMode.Manuscript)
+        prefs.activeNotebookId = "default"
+        prefs.hasSeenFadeDisclosure = true
+        prefs.hasNormalizedBlankCustomPersona = true
 
-        assertEquals(DiaryMode.Manuscript, Prefs(RuntimeEnvironment.getApplication()).diaryModeFor(Persona.Whisper))
-        assertEquals(DiaryMode.Manuscript, Prefs(RuntimeEnvironment.getApplication()).diaryModeFor(Persona.Confidant))
+        val reloaded = Prefs(RuntimeEnvironment.getApplication())
+        assertEquals("default", reloaded.activeNotebookId)
+        assertTrue(reloaded.hasSeenFadeDisclosure)
+        assertTrue(reloaded.hasNormalizedBlankCustomPersona)
     }
 }

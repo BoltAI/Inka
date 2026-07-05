@@ -2,7 +2,7 @@
 
 Automated gate:
 
-- [x] `./gradlew test assembleRelease` passes from a clean clone with no local secrets. Last run: 2026-07-05, local workstation after final Manuscript spec cleanup and modal AI warnings.
+- [x] `./gradlew test assembleRelease` passes from a clean clone with no local secrets. Last run: 2026-07-05, local workstation after the one-notebook persistence refactor.
 - [ ] GitHub Actions release build passes.
 
 Device smoke:
@@ -50,31 +50,38 @@ Device smoke:
 - [x] 2026-07-05: changed Manuscript replies to be same-page-only. If a reply cannot fit on the current page, the app clears the draft reply, persists no assistant text, creates no later/fresh page, restores API history from the notebook, and shows a `Reply does not fit` alert. Missing provider API keys and AI failures now show modal warnings instead of writing inline page text. Updated BOOX instrumentation smoke to assert the overflow alert and an untouched one-page Custom notebook. Ran `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon`, `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`, and `./gradlew test assembleRelease --no-daemon`; instrumentation passed with `OK (4 tests)` and launch logs showed Storyteller Manuscript restored with raw drawing attached and no fatal or ANR/freeze output.
 - [x] 2026-07-05: user manually confirmed live Manuscript writing looks good, saved/replayed ink is acceptable though not perfect, recognition/AI still works, there is no stuck/blank unable-to-write state, and the current writing/replay quality is acceptable for finishing this goal.
 - [x] 2026-07-05: final Manuscript cleanup pass aligned `manuscript-mode-spec.md` with current product decisions, removed the unused inline page-error renderer, moved Fade AI failures to modal warnings too, and renamed stale error-copy tests. Ran `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon`, `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`, and `./gradlew test assembleRelease --no-daemon`; BOOX instrumentation passed with `OK (4 tests)` and launch logs showed Storyteller Manuscript restored with raw drawing attached and no fatal or ANR/freeze output.
+- [x] 2026-07-05: patched Fade mode to keep BOOX raw ink as the only live handwriting layer until the prompt fade starts, then installed `app-debug.apk` on Boox device `a8f9bed9` with `adb install -r` and relaunched. Logcat showed `ready`, `surface size: 1860x2480`, and `Onyx raw drawing attached` with no `AndroidRuntime` output. Real stylus fade quality still needs manual confirmation.
+- [x] 2026-07-05: refactored the old Fade/Manuscript split into one active schema-v2 notebook that always persists recognized exchanges while keeping the live page on Fade behavior. Added v2 store/migration/history tests, prefs coverage for active notebook + fade disclosure, renderer history pagination tests, and updated BOOX smoke to seed the active notebook file instead of per-persona files. Ran `./gradlew testDebugUnitTest`, `./gradlew test assembleRelease`, and `./gradlew assembleDebug assembleDebugAndroidTest`; all passed.
+- [x] 2026-07-05: ran `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh` after the one-notebook refactor and final history read-only input fix. The script installed debug APKs, instrumentation passed with `OK (2 tests)`, relaunched `com.inkwell.diary`, and logcat showed `notebook loaded: id=default, title=Inka's Diary, persona=Custom, exchanges=0`, `ready`, and `Onyx raw drawing attached` with no fatal or ANR/freeze output.
+- [x] 2026-07-06: fixed review findings after the one-notebook refactor: API history now caps the last 20 exchanges before expanding messages, the one-time fade disclosure job is cancelled before history/settings/clear/burn/new-writing renderer state changes, the Notebook burn row resets its visible title immediately, and BOOX smoke no longer depends on Espresso window focus for onboarding. Ran `./gradlew testDebugUnitTest`, `./gradlew test assembleRelease`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (2 tests)` and launch logs showed no fatal/ANR output.
+- [x] 2026-07-06: fixed onboarding/default-persona regression. The app no longer loads notebook metadata before incomplete onboarding, onboarding completion explicitly defaults the active notebook to `Whisper`, a one-time migration normalizes `Custom` notebooks with blank custom prompts to `Whisper`, and BOOX smoke seeds its dense notebook fixture with the default persona. Ran `./gradlew testDebugUnitTest`, `./gradlew test assembleRelease`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (2 tests)` and final launch logged `persona=Whisper` with raw drawing attached and no fatal/ANR output.
+- [x] 2026-07-06: added a top-toolbar `Read notebook` action for opening the persisted manuscript/history view, including an empty-notebook warning, and fixed Settings touch leakage by making the settings screen consume unhandled touches while hiding the underlying canvas toolbar. Added BOOX smoke coverage that asserts the read action is visible on the main page and main toolbar actions are not shown after Settings opens. Ran `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest`, `./gradlew test assembleRelease`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (3 tests)` and launch logs showed raw drawing attached with no fatal/ANR output.
+- [x] 2026-07-06: hardened History read-only input. `InkCaptureController.setReadOnlyInputEnabled(true)` now disables BOOX raw drawing and raw rendering completely while preserving finger page navigation, cancels pending commit timers, and keeps raw drawing disabled after TouchHelper reset/clear paths. Ran `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest` and `./gradlew test assembleRelease`; installed `app-debug.apk` on BOOX device `a8f9bed9`, opened History from the toolbar, and logcat showed `read-only input enabled; raw drawing disabled` followed by `history opened`. Real stylus rejection still needs manual pen confirmation.
+- [x] 2026-07-06: changed History into a distinct read-only screen. Opening it swaps the main toolbar for a History top nav with Back on the left and only `Burn notebook` on the right; swiping past the last page no longer exits History. The burn action shows destructive confirmation before deleting the notebook. Added BOOX smoke coverage for the History chrome and hidden main toolbar actions. Ran `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest`, `./gradlew test assembleRelease`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (4 tests)` and launch logs showed raw drawing attached with no fatal/ANR output.
 
 Extended on-device release script. Execute on real Boox hardware before public release; emulator cannot exercise TouchHelper or e-ink refresh.
 
 1. [ ] **Cold start:** fresh install -> onboarding -> first reply. Time it. Pass: < 2 min.
-2. [x] **Ink feel:** user manually confirmed current Manuscript writing/replay quality is acceptable.
+2. [x] **Ink feel:** user manually confirmed the current live writing and saved-ink replay quality was acceptable before the one-notebook refactor; rerun live fade regression after this refactor before release.
 3. [ ] **Recognition set:** write, one at a time, committing each: "hello", "What should I cook tonight?", "I've been feeling stuck on my startup lately", a 4-line multi-line note, and one deliberately sloppy sentence. Pass: at least 4/5 produce a sensible reply; sloppy case may trigger the can't-read hint.
 4. [ ] **The illusion:** film the fade + reveal. Pass: fade completes < 2.5s, page is clean, reply writes word-by-word at reading pace, terminal full refresh leaves crisp text.
 5. [ ] **Context:** write "My dog is named Biscuit." -> commit -> after reply, write "What breed do you think he is?" Pass: reply references Biscuit/the dog.
-6. [ ] **Pagination:** switch persona to Scholar, ask for something long ("tell me about the history of ink"). Pass: page fills, tap advances, no text clipped.
+6. [ ] **History:** write several exchanges, right-swipe into history, page through old entries, then move forward past the last history page. Pass: history is readable, old pages are read-only, and the app returns to the live page.
 7. [ ] **Failure - network:** airplane mode -> write -> commit. Pass: modal network warning appears; restoring network and retrying works.
 8. [ ] **Failure - auth:** corrupt the key in Settings -> write. Pass: modal key/settings warning appears; fixing key recovers without restart.
 9. [ ] **Endurance:** 20-turn conversation. Pass: no crash, no ANR, no ghosting accumulation, memory stable while watching logcat.
-10. [ ] **Settings matrix:** change commit delay to 4s, switch persona, clear conversation. Pass: timing changes, tone changes next turn, pronoun no longer resolves after clearing.
+10. [ ] **Settings matrix:** change commit delay to 4s, switch persona, and burn the notebook. Pass: timing changes, tone changes next turn with the voice-change note, and burned history no longer reaches the model.
 
-Manuscript Mode additions:
+One-notebook persistence additions:
 
-1. [ ] **Restart integrity:** 5 exchanges with Storyteller -> force-stop app -> relaunch. Pass: last page renders in < 3s, and the follow-up reply references an earlier story detail.
-2. [x] **Two hands:** user manually accepted the current black user ink plus styled diary reply separation as good enough for this goal.
-3. [ ] **Marathon:** 30 exchanges in one Muse session across at least 6 pages. Pass: no crash, page turns stay < 1.5s, JSON file loads on restart.
-4. [ ] **Cross-page sentence:** start a sentence at the page bottom, turn, finish it, let commit fire. Pass: one coherent message appears in logcat and one reply is produced.
-5. [ ] **Same-page fit guard:** ask for a reply that cannot fit on the current page. Pass: no assistant text is saved, no new page is created, and a modal warning appears.
-6. [ ] **Burn:** burn the Wit's notebook. Pass: file is gone, page is blank, Wit remembers nothing; Storyteller's notebook is untouched.
-7. [ ] **Mode override:** set Whisper to "The ink remains," exchange twice. Pass: Whisper appends and persists like Manuscript; reverting to "The ink fades" restores v1 Fade behavior.
-8. [x] **Previous-page edit:** user manually accepted current Manuscript writing/replay quality; automated smoke verifies editable previous-page status UI, and same-page-only reply behavior is covered by instrumentation.
-9. [ ] **Fade regression:** rerun v1 manual items 3, 4, and 9 in Fade mode. Pass: behavior matches v1.
+1. [ ] **Restart integrity:** 5 exchanges -> force-stop app -> relaunch. Pass: notebook reloads, history opens, and the follow-up reply references earlier context.
+2. [ ] **Fade disclosure:** first successful fade shows the one-time disclosure; later fades do not repeat it.
+3. [ ] **History marathon:** 30 exchanges in one notebook. Pass: no crash, history paging stays responsive, JSON loads on restart.
+4. [ ] **API failure persistence:** airplane mode or missing key after recognition. Pass: the prompt fades, a modal warning appears, the app remains writable, and the exchange remains in JSON with `reply = null`.
+5. [ ] **History read-only:** right-swipe into history and try the pen. Pass: no ink is added and the hint says `Return to the page to write.`
+6. [ ] **Burn:** burn the notebook. Pass: file is gone, page is blank, and the next request has no prior context.
+7. [ ] **Persona switch:** switch persona inside Notebook settings. Pass: same file remains active, the next request uses the new persona, and log/API behavior reflects the voice-change note.
+8. [ ] **Live fade regression:** write with the pen. Pass: live ink stays BOOX-native until fade begins; no bitmap-style visual change appears before fading.
 
 Release gate:
 

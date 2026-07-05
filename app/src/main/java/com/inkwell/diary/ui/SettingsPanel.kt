@@ -25,7 +25,6 @@ import com.inkwell.diary.R
 import com.inkwell.diary.brain.AnthropicResult
 import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.data.AiProvider
-import com.inkwell.diary.data.DiaryMode
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.page.HandwritingFont
@@ -47,13 +46,17 @@ class SettingsPanel(
         fun onClearConversation()
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
-        fun onNotebookSettingsChanged()
+        fun currentNotebookTitle(): String
+        fun currentNotebookPersona(): Persona
+        fun onNotebookTitleChanged(title: String)
+        fun onNotebookPersonaChanged(persona: Persona)
+        fun onBurnNotebook()
     }
 
     private enum class SettingsScreen(val title: String) {
         Home("Settings"),
         Ai("AI Settings"),
-        Persona("Persona"),
+        Notebook("Notebook"),
         Recognition("Recognition Settings"),
         Writing("Writing Settings"),
         Developer("Developer"),
@@ -71,6 +74,8 @@ class SettingsPanel(
 
     init {
         setBackgroundColor(Color.WHITE)
+        isClickable = true
+        isFocusable = true
         buildChrome()
         render(SettingsScreen.Home)
     }
@@ -173,7 +178,7 @@ class SettingsPanel(
         val content = when (screen) {
             SettingsScreen.Home -> buildHomeScreen()
             SettingsScreen.Ai -> buildAiScreen()
-            SettingsScreen.Persona -> buildPersonaScreen()
+            SettingsScreen.Notebook -> buildNotebookScreen()
             SettingsScreen.Recognition -> buildRecognitionScreen()
             SettingsScreen.Writing -> buildWritingScreen()
             SettingsScreen.Developer -> buildDeveloperScreen()
@@ -195,10 +200,9 @@ class SettingsPanel(
         panel.addView(group, fullWidth())
 
         addTopicRow(group, "AI Settings") { navigate(SettingsScreen.Ai) }
-        addTopicRow(group, "Persona") { navigate(SettingsScreen.Persona) }
+        addTopicRow(group, "Notebook") { navigate(SettingsScreen.Notebook) }
         addTopicRow(group, "Recognition Settings") { navigate(SettingsScreen.Recognition) }
         addTopicRow(group, "Writing Settings") { navigate(SettingsScreen.Writing) }
-        addTopicRow(group, "Conversation Data") { navigate(SettingsScreen.Conversation) }
         addTopicRow(group, "Developer") { navigate(SettingsScreen.Developer) }
         addTopicRow(group, "About Inkwell") { navigate(SettingsScreen.About) }
         addValueRow(group, "Inkwell Version", BuildConfig.VERSION_NAME)
@@ -315,36 +319,71 @@ class SettingsPanel(
         return panel.parent as ScrollView
     }
 
-    private fun buildPersonaScreen(): View {
+    private fun buildNotebookScreen(): View {
         val panel = scrollPanel(topPaddingDp = 12, horizontalPaddingDp = 46)
         val status = TextView(context).paperText(16f)
+        val notebookGroup = groupedList()
+        panel.addView(notebookGroup, fullWidth())
+
+        lateinit var titleRow: ChoiceRowHandle
+        titleRow = addChoiceRow(notebookGroup, "Title", callbacks.currentNotebookTitle().ifBlank { "Inka's Diary" }) {
+            showTextInputDialog(
+                title = "Notebook Title",
+                hint = "Notebook title",
+                initialValue = callbacks.currentNotebookTitle(),
+                masked = false,
+                multiLine = false,
+            ) { value ->
+                callbacks.onNotebookTitleChanged(value)
+                titleRow.valueText.text = callbacks.currentNotebookTitle().ifBlank { "Inka's Diary" }
+                status.text = "Notebook title saved."
+            }
+        }
+
+        addValueRow(
+            notebookGroup,
+            "Storage",
+            "Everything you write is stored on this device until you burn the notebook.",
+        )
+
+        addChoiceRow(notebookGroup, "Burn this notebook", "Burn") {
+            AlertDialog.Builder(context)
+                .setTitle("Burn this notebook")
+                .setMessage("Delete this notebook and start a fresh Inka's Diary?")
+                .setPositiveButton("Burn") { _, _ ->
+                    callbacks.onBurnNotebook()
+                    titleRow.valueText.text = "Inka's Diary"
+                    status.text = "Notebook burned."
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        panel.addGap(18)
         val group = groupedList()
         panel.addView(group, fullWidth())
 
         val radioButtons = linkedMapOf<Persona, RadioButton>()
         val customGap = View(context).apply {
-            visibility = if (prefs.persona == Persona.Custom) View.VISIBLE else View.GONE
+            visibility = if (callbacks.currentNotebookPersona() == Persona.Custom) View.VISIBLE else View.GONE
         }
         val customGroup = groupedList().apply {
-            visibility = if (prefs.persona == Persona.Custom) View.VISIBLE else View.GONE
+            visibility = if (callbacks.currentNotebookPersona() == Persona.Custom) View.VISIBLE else View.GONE
         }
-        var modeRow: ChoiceRowHandle? = null
 
         fun renderSelection() {
-            val selected = prefs.persona
+            val selected = callbacks.currentNotebookPersona()
             radioButtons.forEach { (persona, radioButton) ->
                 radioButton.isChecked = persona == selected
             }
             val customVisibility = if (selected == Persona.Custom) View.VISIBLE else View.GONE
             customGap.visibility = customVisibility
             customGroup.visibility = customVisibility
-            modeRow?.valueText?.text = prefs.diaryModeFor(selected).label
         }
 
         fun selectPersona(persona: Persona) {
-            prefs.persona = persona
+            callbacks.onNotebookPersonaChanged(persona)
             renderSelection()
-            callbacks.onNotebookSettingsChanged()
             status.text = if (persona == Persona.Custom && prefs.customPrompt.isBlank()) {
                 "Custom persona selected. Add a custom prompt below."
             } else {
@@ -377,34 +416,15 @@ class SettingsPanel(
                 multiLine = true,
             ) { value ->
                 prefs.customPrompt = value
-                prefs.persona = Persona.Custom
+                callbacks.onNotebookPersonaChanged(Persona.Custom)
                 renderSelection()
                 customPromptRow.valueText.text = customPromptStatus()
-                callbacks.onNotebookSettingsChanged()
                 status.text = "Custom prompt saved."
             }
         }
 
         panel.addGap(16)
         panel.addView(status, fullWidth())
-        panel.addGap(18)
-        val modeGroup = groupedList()
-        panel.addView(modeGroup, fullWidth())
-        modeRow = addChoiceRow(modeGroup, "Writing Mode", prefs.diaryModeFor(prefs.persona).label) {
-            val modes = DiaryMode.entries.toList()
-            val current = prefs.diaryModeFor(prefs.persona)
-            showChoiceDialog(
-                title = "Writing Mode",
-                choices = modes.map { it.label },
-                selectedIndex = modes.indexOf(current).coerceAtLeast(0),
-            ) { index ->
-                val mode = modes.getOrElse(index) { DiaryMode.defaultFor(prefs.persona) }
-                prefs.setDiaryMode(prefs.persona, mode)
-                modeRow?.valueText?.text = mode.label
-                callbacks.onNotebookSettingsChanged()
-                status.text = "Writing mode saved: ${mode.label}."
-            }
-        }
         panel.addGap(36)
         return panel.parent as ScrollView
     }
@@ -544,23 +564,14 @@ class SettingsPanel(
         val status = TextView(context).paperText(16f)
         val group = groupedList()
         panel.addView(group, fullWidth())
-        val manuscript = prefs.diaryModeFor(prefs.persona) == DiaryMode.Manuscript
-        val rowLabel = if (manuscript) "Burn this notebook" else "Clear Conversation"
-        val rowValue = if (manuscript) "Burn" else "Clear"
-        val dialogTitle = rowLabel
-        val dialogMessage = if (manuscript) {
-            "Delete the saved manuscript pages for ${prefs.persona.label}?"
-        } else {
-            "Remove the local conversation history used for AI context?"
-        }
 
-        addChoiceRow(group, rowLabel, rowValue) {
+        addChoiceRow(group, "Clear Live Page", "Clear") {
             AlertDialog.Builder(context)
-                .setTitle(dialogTitle)
-                .setMessage(dialogMessage)
-                .setPositiveButton(rowValue) { _, _ ->
+                .setTitle("Clear Live Page")
+                .setMessage("Clear the current live page. Stored notebook history is unchanged.")
+                .setPositiveButton("Clear") { _, _ ->
                     callbacks.onClearConversation()
-                    status.text = if (manuscript) "Notebook burned." else "Conversation cleared."
+                    status.text = "Live page cleared."
                 }
                 .setNegativeButton("Cancel", null)
                 .show()

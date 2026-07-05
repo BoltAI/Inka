@@ -2,23 +2,24 @@ package com.inkwell.diary.ui
 
 import android.content.Intent
 import android.os.SystemClock
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.withText
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
-import com.inkwell.diary.data.DiaryMode
-import com.inkwell.diary.data.InkElement
+import com.inkwell.diary.data.DEFAULT_NOTEBOOK_ID
+import com.inkwell.diary.data.DEFAULT_NOTEBOOK_TITLE
+import com.inkwell.diary.data.Exchange
 import com.inkwell.diary.data.InkPoint
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
+import com.inkwell.diary.data.NotebookInk
 import com.inkwell.diary.data.NotebookLoadResult
-import com.inkwell.diary.data.NotebookPage
 import com.inkwell.diary.data.NotebookStore
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,7 +37,12 @@ class MainActivitySmokeTest {
 
         try {
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
-            onView(withText("A diary that writes back.")).check(matches(withText("A diary that writes back.")))
+            assertTrue(
+                "Expected onboarding headline to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("A diary that writes back.") == true
+                },
+            )
         } finally {
             activity?.finish()
             instrumentation.waitForIdleSync()
@@ -45,98 +51,33 @@ class MainActivitySmokeTest {
     }
 
     @Test
-    fun debugReplyIntentWarnsWhenManuscriptReplyDoesNotFitPage() = runBlocking {
+    fun denseActiveNotebookLaunchesWithoutBlockingMainThread() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = Prefs(context)
         val store = NotebookStore(context.filesDir)
-        val testPersona = Persona.Custom
-        val notebookFile = store.fileFor(testPersona)
+        val notebookFile = store.fileFor(DEFAULT_NOTEBOOK_ID)
         val originalNotebook = notebookFile.takeIf { it.exists() }?.readBytes()
         val previousOnboardingState = prefs.onboardingComplete
         val previousPersona = prefs.persona
-        val previousMode = prefs.diaryModeFor(testPersona)
-        val longReply = List(70) { index ->
-            "This injected manuscript line $index keeps flowing across the paper so the debug smoke can prove page overflow without touching the network."
-        }.joinToString(" ")
-        val launchIntent = Intent(DEBUG_REPLY_ACTION)
-            .setClassName(context.packageName, MainActivity::class.java.name)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra(DEBUG_REPLY_EXTRA, longReply)
-        var activity: MainActivity? = null
-
-        try {
-            notebookFile.delete()
-            prefs.onboardingComplete = true
-            prefs.persona = testPersona
-            prefs.setDiaryMode(testPersona, DiaryMode.Manuscript)
-            activity = instrumentation.startActivitySync(launchIntent) as MainActivity
-            assertTrue(
-                "Expected the debug manuscript reply to show a page-fit warning",
-                waitUntil(timeoutMs = 15_000L) {
-                    runCatching {
-                        onView(withText("Reply does not fit")).check(matches(withText("Reply does not fit")))
-                    }.isSuccess
-                },
-            )
-            val result = store.load(testPersona)
-            assertTrue(result is NotebookLoadResult.Ready)
-            val notebook = (result as NotebookLoadResult.Ready).notebook
-            assertEquals(listOf(0), notebook.pages.map { it.index })
-            assertTrue(notebook.rebuildDebugText().isBlank())
-            assertFalse(notebook.rebuildDebugText().contains("injected manuscript line"))
-            assertTrue(
-                "Expected the overflow debug reply not to create extra pages",
-                waitUntil(timeoutMs = 1_000L) {
-                    val result = store.load(testPersona)
-                    result is NotebookLoadResult.Ready &&
-                        result.notebook.pages.size == 1 &&
-                        result.notebook.rebuildDebugText().isBlank()
-                },
-            )
-        } finally {
-            activity?.finish()
-            instrumentation.waitForIdleSync()
-            prefs.onboardingComplete = previousOnboardingState
-            prefs.persona = previousPersona
-            prefs.setDiaryMode(testPersona, previousMode)
-            if (originalNotebook != null) {
-                notebookFile.parentFile?.mkdirs()
-                notebookFile.writeBytes(originalNotebook)
-            } else {
-                notebookFile.delete()
-            }
-        }
-    }
-
-    @Test
-    fun denseSavedInkNotebookLaunchesWithoutBlockingMainThread() = runBlocking {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        val prefs = Prefs(context)
-        val store = NotebookStore(context.filesDir)
-        val testPersona = Persona.Custom
-        val notebookFile = store.fileFor(testPersona)
-        val originalNotebook = notebookFile.takeIf { it.exists() }?.readBytes()
-        val previousOnboardingState = prefs.onboardingComplete
-        val previousPersona = prefs.persona
-        val previousMode = prefs.diaryModeFor(testPersona)
+        val previousActiveNotebookId = prefs.activeNotebookId
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
 
         try {
             prefs.onboardingComplete = true
-            prefs.persona = testPersona
-            prefs.setDiaryMode(testPersona, DiaryMode.Manuscript)
-            store.save(denseNotebook(testPersona))
+            prefs.persona = Persona.default
+            prefs.activeNotebookId = DEFAULT_NOTEBOOK_ID
+            store.save(denseNotebook(Persona.default))
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             SystemClock.sleep(1_000L)
             instrumentation.waitForIdleSync()
 
-            val loaded = (store.load(testPersona) as NotebookLoadResult.Ready).notebook
-            val ink = loaded.pages.single().elements.single() as InkElement
+            assertTrue(activity.containsShownContentDescription("Read notebook"))
+            val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.default) as NotebookLoadResult.Ready).notebook
+            val ink = loaded.exchanges.single().ink!!
             assertEquals(DENSE_STROKES * DENSE_POINTS_PER_STROKE, ink.strokes.sumOf { it.points.size })
             assertFalse(activity.isFinishing)
         } finally {
@@ -144,7 +85,7 @@ class MainActivitySmokeTest {
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
             prefs.persona = previousPersona
-            prefs.setDiaryMode(testPersona, previousMode)
+            prefs.activeNotebookId = previousActiveNotebookId
             if (originalNotebook != null) {
                 notebookFile.parentFile?.mkdirs()
                 notebookFile.writeBytes(originalNotebook)
@@ -155,118 +96,105 @@ class MainActivitySmokeTest {
     }
 
     @Test
-    fun debugReplyIntentKeepsPersonaNotebooksSeparate() = runBlocking {
+    fun settingsScreenHidesMainToolbarActions() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = Prefs(context)
-        val store = NotebookStore(context.filesDir)
-        val personas = listOf(Persona.Custom, Persona.Muse)
-        val originalNotebooks = personas.associateWith { persona ->
-            store.fileFor(persona).takeIf { it.exists() }?.readBytes()
-        }
         val previousOnboardingState = prefs.onboardingComplete
-        val previousPersona = prefs.persona
-        val previousModes = personas.associateWith { prefs.diaryModeFor(it) }
-        val customReply = "custom persona isolation smoke"
-        val museReply = "muse persona isolation smoke"
+        val previousToolbarLogButton = prefs.showToolbarLogButton
+        val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
 
         try {
             prefs.onboardingComplete = true
-            personas.forEach { persona ->
-                store.fileFor(persona).delete()
-                prefs.setDiaryMode(persona, DiaryMode.Manuscript)
-            }
+            prefs.showToolbarLogButton = true
 
-            activity = instrumentation.startActivitySync(
-                debugReplyIntent(context.packageName, Persona.Custom, customReply),
-            ) as MainActivity
+            activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             assertTrue(
-                "Expected Custom notebook to receive only its debug reply",
+                "Expected the main toolbar settings action to render",
                 waitUntil(timeoutMs = 10_000L) {
-                    store.debugTextFor(Persona.Custom).contains(customReply)
+                    activity?.containsShownContentDescription("Settings") == true
                 },
             )
-            activity.finish()
+
+            assertTrue(activity.performClickOnShownContentDescription("Settings"))
+            assertTrue(
+                "Expected settings screen to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("Settings") == true &&
+                        activity?.containsShownContentDescription("Back") == true
+                },
+            )
+            assertFalse(activity?.containsShownContentDescription("Erase page") == true)
+            assertFalse(activity?.containsShownContentDescription("Read notebook") == true)
+            assertFalse(activity?.containsShownContentDescription("AI log") == true)
+        } finally {
+            activity?.finish()
             instrumentation.waitForIdleSync()
-            activity = null
+            prefs.onboardingComplete = previousOnboardingState
+            prefs.showToolbarLogButton = previousToolbarLogButton
+        }
+    }
 
-            activity = instrumentation.startActivitySync(
-                debugReplyIntent(context.packageName, Persona.Muse, museReply),
-            ) as MainActivity
+    @Test
+    fun historyScreenShowsBackTitleAndBurnOnly() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val prefs = Prefs(context)
+        val store = NotebookStore(context.filesDir)
+        val notebookFile = store.fileFor(DEFAULT_NOTEBOOK_ID)
+        val originalNotebook = notebookFile.takeIf { it.exists() }?.readBytes()
+        val previousOnboardingState = prefs.onboardingComplete
+        val previousPersona = prefs.persona
+        val previousActiveNotebookId = prefs.activeNotebookId
+        val previousToolbarLogButton = prefs.showToolbarLogButton
+        val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        var activity: MainActivity? = null
+
+        try {
+            prefs.onboardingComplete = true
+            prefs.persona = Persona.default
+            prefs.activeNotebookId = DEFAULT_NOTEBOOK_ID
+            prefs.showToolbarLogButton = true
+            store.save(denseNotebook(Persona.default))
+
+            activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             assertTrue(
-                "Expected Muse notebook to receive only its debug reply",
+                "Expected the read notebook action to render",
                 waitUntil(timeoutMs = 10_000L) {
-                    store.debugTextFor(Persona.Muse).contains(museReply)
+                    activity?.containsShownContentDescription("Read notebook") == true
                 },
             )
 
-            val customText = store.debugTextFor(Persona.Custom)
-            val museText = store.debugTextFor(Persona.Muse)
-            assertTrue(customText.contains(customReply))
-            assertFalse(customText.contains(museReply))
-            assertTrue(museText.contains(museReply))
-            assertFalse(museText.contains(customReply))
+            assertTrue(activity.performClickOnShownContentDescription("Read notebook"))
+            assertTrue(
+                "Expected History screen chrome to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("History") == true &&
+                        activity?.containsShownContentDescription("Back") == true &&
+                        activity?.containsShownContentDescription("Burn notebook") == true
+                },
+            )
+            assertFalse(activity?.containsShownContentDescription("Erase page") == true)
+            assertFalse(activity?.containsShownContentDescription("Read notebook") == true)
+            assertFalse(activity?.containsShownContentDescription("Settings") == true)
+            assertFalse(activity?.containsShownContentDescription("AI log") == true)
         } finally {
             activity?.finish()
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
             prefs.persona = previousPersona
-            previousModes.forEach { (persona, mode) ->
-                prefs.setDiaryMode(persona, mode)
+            prefs.activeNotebookId = previousActiveNotebookId
+            prefs.showToolbarLogButton = previousToolbarLogButton
+            if (originalNotebook != null) {
+                notebookFile.parentFile?.mkdirs()
+                notebookFile.writeBytes(originalNotebook)
+            } else {
+                notebookFile.delete()
             }
-            originalNotebooks.forEach { (persona, bytes) ->
-                restoreNotebook(store, persona, bytes)
-            }
         }
-    }
-
-    private fun waitUntil(timeoutMs: Long, condition: () -> Boolean): Boolean {
-        val deadline = SystemClock.elapsedRealtime() + timeoutMs
-        while (SystemClock.elapsedRealtime() < deadline) {
-            if (condition()) return true
-            SystemClock.sleep(250L)
-        }
-        return condition()
-    }
-
-    private fun debugReplyIntent(packageName: String, persona: Persona, reply: String): Intent {
-        return Intent(DEBUG_REPLY_ACTION)
-            .setClassName(packageName, MainActivity::class.java.name)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra(DEBUG_REPLY_EXTRA, reply)
-            .putExtra(DEBUG_PERSONA_EXTRA, persona.name)
-            .putExtra(DEBUG_MODE_EXTRA, DiaryMode.Manuscript.name)
-    }
-
-    private fun NotebookStore.debugTextFor(persona: Persona): String {
-        val result = load(persona)
-        return if (result is NotebookLoadResult.Ready) {
-            result.notebook.rebuildDebugText()
-        } else {
-            ""
-        }
-    }
-
-    private fun restoreNotebook(store: NotebookStore, persona: Persona, bytes: ByteArray?) {
-        val file = store.fileFor(persona)
-        if (bytes != null) {
-            file.parentFile?.mkdirs()
-            file.writeBytes(bytes)
-        } else {
-            file.delete()
-        }
-    }
-
-    private fun com.inkwell.diary.data.Notebook.rebuildDebugText(): String {
-        return pages.sortedBy { it.index }
-            .flatMap { it.elements }
-            .joinToString("\n") { element ->
-                when (element) {
-                    is com.inkwell.diary.data.InkElement -> element.recognizedText
-                    is com.inkwell.diary.data.ReplyElement -> element.text
-                }
-            }
     }
 
     private fun denseNotebook(persona: Persona): Notebook {
@@ -283,27 +211,84 @@ class MainActivitySmokeTest {
             )
         }
         return Notebook(
-            id = persona.name,
+            id = DEFAULT_NOTEBOOK_ID,
+            title = DEFAULT_NOTEBOOK_TITLE,
             personaId = persona.name,
             createdAt = 10L,
             updatedAt = 11L,
-            pages = listOf(
-                NotebookPage(index = 0).addElement(
-                    InkElement(
+            exchanges = listOf(
+                Exchange(
+                    id = "exchange-11",
+                    committedAt = 11L,
+                    ink = NotebookInk(
                         strokes = strokes,
-                        committedAt = 11L,
                         recognizedText = "dense generated smoke",
                     ),
+                    reply = null,
                 ),
             ),
         )
     }
 
+    private fun waitUntil(timeoutMs: Long, condition: () -> Boolean): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (condition()) return true
+            SystemClock.sleep(250L)
+        }
+        return condition()
+    }
+
+    private fun MainActivity.containsVisibleText(expected: String): Boolean {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var found = false
+        instrumentation.runOnMainSync {
+            found = window.decorView.containsVisibleText(expected)
+        }
+        return found
+    }
+
+    private fun View.containsVisibleText(expected: String): Boolean {
+        if (visibility != View.VISIBLE) return false
+        if (this is TextView && text?.toString() == expected) return true
+        if (this !is ViewGroup) return false
+        for (index in 0 until childCount) {
+            if (getChildAt(index).containsVisibleText(expected)) return true
+        }
+        return false
+    }
+
+    private fun MainActivity.containsShownContentDescription(expected: String): Boolean {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var found = false
+        instrumentation.runOnMainSync {
+            found = window.decorView.findShownContentDescription(expected) != null
+        }
+        return found
+    }
+
+    private fun MainActivity.performClickOnShownContentDescription(expected: String): Boolean {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var clicked = false
+        instrumentation.runOnMainSync {
+            clicked = window.decorView.findShownContentDescription(expected)?.performClick() == true
+        }
+        instrumentation.waitForIdleSync()
+        return clicked
+    }
+
+    private fun View.findShownContentDescription(expected: String): View? {
+        if (!isShown) return null
+        if (contentDescription?.toString() == expected) return this
+        if (this !is ViewGroup) return null
+        for (index in 0 until childCount) {
+            val match = getChildAt(index).findShownContentDescription(expected)
+            if (match != null) return match
+        }
+        return null
+    }
+
     private companion object {
-        private const val DEBUG_REPLY_ACTION = "com.inkwell.diary.DEBUG_REPLY"
-        private const val DEBUG_REPLY_EXTRA = "reply"
-        private const val DEBUG_PERSONA_EXTRA = "persona"
-        private const val DEBUG_MODE_EXTRA = "mode"
         private const val DENSE_STROKES = 12
         private const val DENSE_POINTS_PER_STROKE = 500
     }

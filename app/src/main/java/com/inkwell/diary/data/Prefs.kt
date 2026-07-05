@@ -48,6 +48,18 @@ class Prefs(context: Context) {
         get() = Persona.fromStoredName(plain.getString(KEY_PERSONA, Persona.default.name))
         set(value) = plain.edit { putString(KEY_PERSONA, value.name) }
 
+    var activeNotebookId: String
+        get() = plain.getString(KEY_ACTIVE_NOTEBOOK_ID, "").orEmpty()
+        set(value) = plain.edit { putString(KEY_ACTIVE_NOTEBOOK_ID, value.trim()) }
+
+    var hasSeenFadeDisclosure: Boolean
+        get() = plain.getBoolean(KEY_SEEN_FADE_DISCLOSURE, false)
+        set(value) = plain.edit { putBoolean(KEY_SEEN_FADE_DISCLOSURE, value) }
+
+    var hasNormalizedBlankCustomPersona: Boolean
+        get() = plain.getBoolean(KEY_NORMALIZED_BLANK_CUSTOM_PERSONA, false)
+        set(value) = plain.edit { putBoolean(KEY_NORMALIZED_BLANK_CUSTOM_PERSONA, value) }
+
     var customPrompt: String
         get() = plain.getString(KEY_CUSTOM_PROMPT, "").orEmpty()
         set(value) = plain.edit { putString(KEY_CUSTOM_PROMPT, value) }
@@ -106,15 +118,6 @@ class Prefs(context: Context) {
 
     fun systemPrompt(): String = PersonaPrompts.forPersona(persona, customPrompt)
 
-    fun diaryModeFor(persona: Persona): DiaryMode {
-        val fallback = DiaryMode.defaultFor(persona)
-        return DiaryMode.fromStoredName(plain.getString(diaryModeKey(persona), null), fallback)
-    }
-
-    fun setDiaryMode(persona: Persona, mode: DiaryMode) {
-        plain.edit { putString(diaryModeKey(persona), mode.name) }
-    }
-
     private fun apiKeyKey(provider: AiProvider): String {
         return when (provider) {
             AiProvider.Anthropic -> KEY_API_KEY
@@ -130,8 +133,6 @@ class Prefs(context: Context) {
             AiProvider.Groq -> KEY_GROQ_MODEL
         }
     }
-
-    private fun diaryModeKey(persona: Persona): String = "${KEY_DIARY_MODE_PREFIX}${persona.name}"
 
     companion object {
         const val DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -152,8 +153,10 @@ class Prefs(context: Context) {
         private const val KEY_OPENAI_MODEL = "openai_model"
         private const val KEY_GROQ_MODEL = "groq_model"
         private const val KEY_PERSONA = "persona"
+        private const val KEY_ACTIVE_NOTEBOOK_ID = "active_notebook_id"
+        private const val KEY_SEEN_FADE_DISCLOSURE = "seen_fade_disclosure"
+        private const val KEY_NORMALIZED_BLANK_CUSTOM_PERSONA = "normalized_blank_custom_persona"
         private const val KEY_CUSTOM_PROMPT = "custom_prompt"
-        private const val KEY_DIARY_MODE_PREFIX = "diary_mode_"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_COMMIT_DELAY = "commit_delay"
         private const val KEY_HANDWRITING_FONT = "handwriting_font"

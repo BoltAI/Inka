@@ -4,7 +4,7 @@ Inkwell is a sideloaded Android app for Boox e-ink tablets. It turns a blank pag
 
 ## Status
 
-This repository contains the v1 implementation pass from `riddle-spec.md` plus the Manuscript Mode extension from `manuscript-mode-spec.md`: classic Android Views, Onyx TouchHelper raw pen capture, ML Kit Digital Ink recognition, BYOK AI requests, stepped e-ink fades, persistent notebook pages, word-by-word reply rendering, onboarding, settings, tests, and release docs.
+This repository contains the v1 implementation pass from `riddle-spec.md` plus the one-notebook persistence refactor from `manuscript-mode-spec.md`: classic Android Views, Onyx TouchHelper raw pen capture, ML Kit Digital Ink recognition, BYOK AI requests, stepped e-ink fades, persisted notebook history, word-by-word reply rendering, onboarding, settings, tests, and release docs.
 
 Real Boox hardware is still required for the product gate. A normal emulator can verify the app shell and fallback drawing, but it cannot validate TouchHelper latency or e-ink refresh modes.
 
@@ -52,13 +52,13 @@ Use this script instead of `./gradlew connectedDebugAndroidTest` on BOOX hardwar
 - No telemetry.
 - No crash reporting.
 - Provider API keys are stored in encrypted device preferences.
-- Fade-mode conversation history is memory-only and clears when the process dies.
-- Manuscript-mode notebooks are stored as local JSON files under app-private storage so pages survive restarts.
+- One active notebook is stored as a local JSON file under app-private storage so recognized exchanges survive restarts.
+- The live page still uses the fade illusion; persistence is storage behavior, not a separate writing mode.
 - Handwriting recognition runs on-device after the ML Kit model download.
 
 ## V-next
 
-- Exporting or sharing Manuscript notebooks is intentionally out of scope for this pass. The JSON notebook files are structured so export can be added later without changing the core page model.
+- Exporting or sharing the notebook is intentionally out of scope for this pass. The JSON notebook file is structured so export can be added later without changing the core exchange model.
 
 ## Demo GIF
 

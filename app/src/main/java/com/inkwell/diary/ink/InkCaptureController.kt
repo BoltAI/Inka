@@ -78,6 +78,7 @@ class InkCaptureController(
     private var touchHelper: TouchHelper? = null
     private var rawDrawingActive = false
     private var inputEnabled = true
+    private var readOnlyGesturesEnabled = false
     private var rawStrokeAccepted = false
     private var fallbackStrokeAccepted = false
 
@@ -167,7 +168,7 @@ class InkCaptureController(
             if (resetRawSession) {
                 helper.openRawDrawing()
                 applyRawDrawingSettings(helper)
-                helper.setRawDrawingEnabled(inputEnabled)
+                applyCurrentRawInputState(helper)
             }
             Log.i(TAG, "raw drawing limits refreshed, ${rawLimitSummary(resetRawSession, limit, excludes)}")
         }.onFailure { error ->
@@ -176,6 +177,7 @@ class InkCaptureController(
     }
 
     fun setInputEnabled(enabled: Boolean, keepRawInkVisible: Boolean = false) {
+        readOnlyGesturesEnabled = false
         inputEnabled = enabled
         runCatching {
             if (enabled) {
@@ -195,16 +197,17 @@ class InkCaptureController(
     }
 
     fun setReadOnlyInputEnabled(enabled: Boolean) {
-        inputEnabled = enabled
+        readOnlyGesturesEnabled = enabled
+        inputEnabled = false
         rawStrokeAccepted = false
         fallbackStrokeAccepted = false
+        commitTimer.cancel()
         runCatching {
             touchHelper?.setRawDrawingRenderEnabled(false)
-            touchHelper?.setRawDrawingEnabled(enabled)
+            touchHelper?.setRawDrawingEnabled(false)
         }
-        if (!enabled) {
-            enableFingerTouchAfterStroke()
-        }
+        Log.i(TAG, "read-only input ${if (enabled) "enabled" else "disabled"}; raw drawing disabled")
+        enableFingerTouchAfterStroke()
     }
 
     fun hideRawInkLayer() {
@@ -220,7 +223,7 @@ class InkCaptureController(
             helper.restartRawDrawing()
             applyRawDrawingSettings(helper)
             helper.setLimitRect(pageRectProvider(), excludeRectsProvider())
-            helper.setRawDrawingEnabled(inputEnabled)
+            applyCurrentRawInputState(helper)
         }.onFailure { error ->
             Log.i(TAG, "raw ink clear failed: ${error::class.java.simpleName}")
         }
@@ -243,11 +246,12 @@ class InkCaptureController(
             val isFinger = toolType == MotionEvent.TOOL_TYPE_FINGER ||
                 toolType == MotionEvent.TOOL_TYPE_MOUSE ||
                 toolType == MotionEvent.TOOL_TYPE_UNKNOWN
-            if (isFinger) {
+            val allowFingerGestures = inputEnabled || readOnlyGesturesEnabled
+            if (isFinger && allowFingerGestures) {
                 gestureDetector.onTouchEvent(event)
             }
             if (rawDrawingActive || !inputEnabled) {
-                return@setOnTouchListener isFinger
+                return@setOnTouchListener isFinger && allowFingerGestures
             }
             handleFallbackInk(event)
             true
@@ -314,6 +318,16 @@ class InkCaptureController(
         helper.setFilterRepeatMovePoint(true)
         helper.enableFingerTouch(true)
         helper.setRawDrawingEnabled(true)
+    }
+
+    private fun applyCurrentRawInputState(helper: TouchHelper) {
+        if (inputEnabled) {
+            helper.setRawDrawingRenderEnabled(true)
+            helper.setRawDrawingEnabled(true)
+        } else {
+            helper.setRawDrawingRenderEnabled(false)
+            helper.setRawDrawingEnabled(false)
+        }
     }
 
     private fun rawLimitSummary(

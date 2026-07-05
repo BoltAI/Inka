@@ -34,17 +34,19 @@ import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.brain.ConversationSettings
 import com.inkwell.diary.brain.DiaryError
 import com.inkwell.diary.brain.ErrorMapper
-import com.inkwell.diary.data.DiaryMode
-import com.inkwell.diary.data.InkElement
+import com.inkwell.diary.data.Exchange
 import com.inkwell.diary.data.InkMessage
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
+import com.inkwell.diary.data.NotebookInk
+import com.inkwell.diary.data.NotebookLoadResult
 import com.inkwell.diary.data.NotebookPage
+import com.inkwell.diary.data.NotebookReply
 import com.inkwell.diary.data.NotebookStore
 import com.inkwell.diary.data.Persona
-import com.inkwell.diary.data.ReplyElement
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.StrokeStore
+import com.inkwell.diary.data.newExchangeId
 import com.inkwell.diary.data.rebuildApiHistory
 import com.inkwell.diary.ink.CommitTimer
 import com.inkwell.diary.ink.CoroutineCommitScheduler
@@ -62,11 +64,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private data class PendingInkSegment(
-    val pageIndex: Int,
-    val strokes: List<InkStroke>,
-)
 
 class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, SettingsPanel.Callbacks {
     private lateinit var prefs: Prefs
@@ -88,6 +85,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     private var commitTimer: CommitTimer? = null
     private var commitJob: Job? = null
     private var promptFadeJob: Job? = null
+    private var fadeDisclosureJob: Job? = null
     private var settingsPanel: SettingsPanel? = null
     private var busy = false
     private var pageSurfaceInitialized = false
@@ -98,10 +96,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     private var lastSurfaceWidth = 0
     private var lastSurfaceHeight = 0
     private var toolbarImmersive = false
-    private var activeDiaryMode = DiaryMode.Fade
     private var activeNotebook: Notebook? = null
-    private var currentNotebookPageIndex = 0
-    private val pendingManuscriptInkSegments = mutableListOf<PendingInkSegment>()
+    private var historyOpen = false
+    private var historyPages: List<NotebookPage> = emptyList()
+    private var historyPageIndex = 0
+    private var voiceChangedForNextRequest = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,11 +111,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         einkRefresher.configureAppRefreshMode()
 
         prefs = Prefs(this)
-        applyDebugLaunchOverrides(intent)
         engine = ConversationEngine()
         recognitionService = MlKitRecognitionService()
         notebookStore = NotebookStore(filesDir)
-        activeDiaryMode = prefs.diaryModeFor(prefs.persona)
         renderer = PageRenderer(this)
         renderer.setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontBold)
         pendingDebugReply = debugReplyFrom(intent)
@@ -127,6 +124,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
                     if (!panel.handleBack()) {
                         onCloseSettings()
                     }
+                } else if (historyOpen) {
+                    closeHistory()
                 } else {
                     finish()
                 }
@@ -134,6 +133,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         })
 
         if (prefs.onboardingComplete || pendingDebugReply != null) {
+            loadActiveNotebook()
             showPage()
         } else {
             showOnboarding()
@@ -143,13 +143,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val changed = applyDebugLaunchOverrides(intent)
-        activeDiaryMode = prefs.diaryModeFor(prefs.persona)
         pendingDebugReply = debugReplyFrom(intent) ?: return
         if (::root.isInitialized) {
-            if (changed) {
-                onNotebookSettingsChanged()
-            }
             root.post { drawPendingDebugReplyIfReady() }
         } else {
             showPage()
@@ -157,17 +152,16 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     override fun onDestroy() {
+        cancelFadeDisclosure()
         captureController?.detach()
         renderer.detach()
         super.onDestroy()
     }
 
     override fun onStop() {
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            activeNotebook?.let { notebook ->
-                lifecycleScope.launch {
-                    runCatching { notebookStore.save(notebook) }
-                }
+        activeNotebook?.let { notebook ->
+            lifecycleScope.launch {
+                runCatching { notebookStore.save(notebook) }
             }
         }
         super.onStop()
@@ -191,9 +185,22 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             recognitionService = recognitionService,
             scope = lifecycleScope,
         ) {
-            showPage()
+            completeOnboarding()
         }
         setContentView(flow)
+    }
+
+    private fun completeOnboarding() {
+        prefs.persona = Persona.default
+        val loaded = loadActiveNotebook()
+        val defaulted = loaded.withPersona(Persona.default, System.currentTimeMillis())
+        activeNotebook = defaulted
+        prefs.persona = Persona.default
+        engine.replaceHistory(defaulted.rebuildApiHistory())
+        lifecycleScope.launch {
+            runCatching { notebookStore.save(defaulted) }
+        }
+        showPage()
     }
 
     private fun showPage() {
@@ -290,15 +297,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         clearRawSurface()
         renderer.attach(pageView, width, height)
         if (!pageSurfaceInitialized) {
-            if (activeDiaryMode == DiaryMode.Manuscript) {
-                loadActiveNotebook()
-            } else {
-                renderer.drawInitialHint()
-            }
+            renderer.drawInitialHint()
             pageSurfaceInitialized = true
-        } else if (activeDiaryMode == DiaryMode.Manuscript) {
-            renderActiveNotebookPage(fullRefresh = surfaceSizeChanged)
-        } else if (!strokeStore.isEmpty()) {
+        } else if (historyOpen) {
+            renderHistoryPage(fullRefresh = surfaceSizeChanged)
+        } else if (!strokeStore.isEmpty() && captureController?.isRawDrawingActive() != true) {
             renderer.showCapturedStrokes(strokeStore.snapshotStrokes())
         }
         drawPendingDebugReplyIfReady()
@@ -349,10 +352,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
     override fun onPenDown(): Boolean {
         if (busy) return false
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            setStatus("Writing")
-            addDebug("writing notebook page ${currentNotebookPageIndex + 1}")
-            return true
+        cancelFadeDisclosure()
+        if (historyOpen) {
+            renderer.showHint("Return to the page to write.")
+            addDebug("history page is read-only")
+            return false
         }
         promptFadeJob?.cancel()
         promptFadeJob = null
@@ -376,7 +380,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
     override fun onCommitRequested() {
         if (busy) return
-        if (strokeStore.isEmpty() && pendingManuscriptInkSegments.isEmpty()) return
+        if (historyOpen || strokeStore.isEmpty()) return
         val now = SystemClock.elapsedRealtime()
         lastCommitRequestedElapsedMs = now
         val afterPenUp = lastPenUpElapsedMs?.let { ", afterPenUp=${now - it}ms" }.orEmpty()
@@ -394,45 +398,35 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     override fun onFingerTap(x: Float, y: Float) {
-        if (activeDiaryMode == DiaryMode.Manuscript && handleNotebookTap(x)) {
+        if (historyOpen && handleHistoryTap(x)) {
             return
         }
         renderer.signalTap()
     }
 
     override fun onFingerSwipeLeft() {
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            turnNotebookPage(1)
+        if (historyOpen) {
+            turnHistoryPage(1)
         }
     }
 
     override fun onFingerSwipeRight() {
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            turnNotebookPage(-1)
+        if (historyOpen) {
+            turnHistoryPage(-1)
+        } else {
+            openHistory()
         }
     }
 
     override fun onStrokeCaptured(strokes: List<InkStroke>, dirtyRect: RectF?) {
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            if (captureController?.isRawDrawingActive() == true) {
-                return
-            }
-            renderActiveNotebookPage(
-                draftStrokes = strokes,
-                fullRefresh = false,
-                dirtyRect = dirtyRect,
-            )
-        } else {
-            renderer.showCapturedStrokes(strokes, dirtyRect)
+        if (historyOpen || captureController?.isRawDrawingActive() == true) {
+            return
         }
+        renderer.showCapturedStrokes(strokes, dirtyRect)
     }
 
     private suspend fun commitPage() {
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            commitManuscriptPage()
-        } else {
-            commitFadePage()
-        }
+        commitFadePage()
     }
 
     private suspend fun commitFadePage() {
@@ -467,8 +461,31 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             return
         }
 
+        val notebookBeforeRequest = activeNotebook ?: loadActiveNotebook()
+        engine.replaceHistory(notebookBeforeRequest.rebuildApiHistory())
+        val committedAt = System.currentTimeMillis()
+        val exchangeId = newExchangeId(committedAt)
+        var persistedNotebook = notebookBeforeRequest.withExchange(
+            Exchange(
+                id = exchangeId,
+                committedAt = committedAt,
+                ink = NotebookInk(
+                    strokes = strokes,
+                    recognizedText = recognized.trim(),
+                ),
+                reply = null,
+            ),
+            updatedAt = committedAt,
+        )
+        activeNotebook = persistedNotebook
+        notebookStore.save(persistedNotebook)
+        addDebug("exchange saved: notebook=${persistedNotebook.id}, exchanges=${persistedNotebook.exchanges.size}")
+
+        val promptFade = schedulePromptFade(strokes)
         val provider = prefs.provider
         if (prefs.apiKey.isBlank()) {
+            promptFade.join()
+            strokeStore.clear()
             captureController?.setInputEnabled(true)
             busy = false
             setStatus("AI setup needed")
@@ -477,7 +494,6 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             return
         }
 
-        schedulePromptFade(strokes)
         setStatus("Sending")
         addDebug("sending to ${provider.label} ${prefs.model}, chars=${recognized.length}")
         val aiStartedAt = SystemClock.elapsedRealtime()
@@ -485,14 +501,21 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         var replyStarted = false
         var streamedChars = 0
         var replyRenderMs = 0L
+        val systemPrompt = if (voiceChangedForNextRequest) {
+            voiceChangedForNextRequest = false
+            "${prefs.systemPrompt()}\n\nThe voice of the diary has changed."
+        } else {
+            prefs.systemPrompt()
+        }
         val settings = ConversationSettings(
             apiKey = prefs.apiKey,
             model = prefs.model,
-            systemPrompt = prefs.systemPrompt(),
+            systemPrompt = systemPrompt,
             provider = provider,
         )
         val result = engine.streamMessage(settings, recognized) { delta ->
             if (delta.isEmpty()) return@streamMessage
+            promptFade.join()
             withContext(Dispatchers.Main) {
                 if (!replyStarted) {
                     val deltaAt = SystemClock.elapsedRealtime()
@@ -509,6 +532,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             }
         }
 
+        promptFade.join()
         when (result) {
             is AnthropicResult.Success -> {
                 val totalMs = SystemClock.elapsedRealtime() - aiStartedAt
@@ -519,6 +543,24 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
                 if (!replyStarted) {
                     setStatus("Reply")
                     replyOverlay.revealReply(result.text)
+                }
+                val savedAt = System.currentTimeMillis()
+                val exchange = persistedNotebook.exchanges.firstOrNull { it.id == exchangeId }
+                if (exchange != null) {
+                    persistedNotebook = persistedNotebook.withExchange(
+                        exchange.copy(
+                            reply = NotebookReply(
+                                text = result.text,
+                                personaId = prefs.persona.name,
+                                createdAt = savedAt,
+                            ),
+                        ),
+                        updatedAt = savedAt,
+                    )
+                    activeNotebook = persistedNotebook
+                    notebookStore.save(persistedNotebook)
+                    engine.replaceHistory(persistedNotebook.rebuildApiHistory())
+                    addDebug("reply saved: notebook=${persistedNotebook.id}, exchanges=${persistedNotebook.exchanges.size}")
                 }
             }
             is AnthropicResult.Failure -> {
@@ -536,228 +578,44 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         busy = false
     }
 
-    private suspend fun commitManuscriptPage() {
-        busy = true
-        val message = strokeStore.snapshot(surfaceView.width, surfaceView.height)
-        val baseNotebook = activeNotebook ?: notebookStore.loadOrCreate(prefs.persona)
-        val segments = (pendingManuscriptInkSegments + listOfNotNull(
-            message.strokes.takeIf { it.isNotEmpty() }?.let {
-                PendingInkSegment(currentNotebookPageIndex, it)
-            },
-        )).sortedBy { it.pageIndex }
-        if (segments.isEmpty()) {
-            captureController?.setInputEnabled(true)
-            busy = false
-            return
-        }
-        engine.replaceHistory(baseNotebook.rebuildApiHistory())
-        captureController?.setInputEnabled(false, keepRawInkVisible = true)
-        val recognitionStartedAt = SystemClock.elapsedRealtime()
-        val afterCommit = lastCommitRequestedElapsedMs
-            ?.let { ", afterCommit=${recognitionStartedAt - it}ms" }
-            .orEmpty()
-        addDebug("recognizing ${segments.sumOf { it.strokes.size }} manuscript stroke(s) on ${segments.size} page(s), language=${prefs.recognitionLanguage}$afterCommit")
-        val recognizedParts = segments.mapIndexed { index, segment ->
-            when (
-                val outcome = recognitionService.recognize(
-                    InkMessage(segment.strokes, message.width, message.height),
-                    prefs.recognitionLanguage,
-                )
-            ) {
-                is RecognitionOutcome.Text -> {
-                    addDebug("recognized segment ${index + 1}/${segments.size}: ${outcome.value.ifBlank { "(blank)" }.shortForDebug()}")
-                    outcome.value.trim()
-                }
-                is RecognitionOutcome.Failure -> {
-                    addDebug("recognition segment ${index + 1}/${segments.size} failed: ${outcome.message.shortForDebug()}")
-                    ""
-                }
-            }
-        }
-        val recognitionMs = SystemClock.elapsedRealtime() - recognitionStartedAt
-        val recognized = recognizedParts.filter { it.isNotBlank() }.joinToString(" ").trim()
-        addDebug("recognized in ${recognitionMs}ms: ${recognized.ifBlank { "(blank)" }.shortForDebug()}")
-
-        val committedAt = System.currentTimeMillis()
-        var notebook = baseNotebook
-        segments.forEachIndexed { index, segment ->
-            val page = notebookPage(notebook, segment.pageIndex)
-            val inkPage = page.addElement(
-                InkElement(
-                    strokes = segment.strokes,
-                    committedAt = committedAt + index,
-                    recognizedText = recognizedParts.getOrElse(index) { "" },
-                ),
-            )
-            notebook = notebook.withPage(inkPage, committedAt)
-        }
-        val inkPageIndex = segments.last().pageIndex
-        activeNotebook = notebook
-        currentNotebookPageIndex = inkPageIndex
-        pendingManuscriptInkSegments.clear()
-        strokeStore.clear()
-        captureController?.clearRawInkLayer()
-        renderActiveNotebookPage()
-        notebookStore.save(notebook)
-
-        if (recognized.isBlank()) {
-            captureController?.setInputEnabled(true)
-            busy = false
-            setStatus("Recognition failed")
-            addDebug("manuscript ink saved without reply")
-            return
-        }
-
-        val provider = prefs.provider
-        if (prefs.apiKey.isBlank()) {
-            engine.replaceHistory(notebook.rebuildApiHistory())
-            captureController?.setInputEnabled(true)
-            busy = false
-            setStatus("AI setup needed")
-            addDebug("ai setup missing: ${provider.label} API key")
-            showMissingApiKeyWarning(provider.label)
-            return
-        }
-
-        setStatus("Sending")
-        addDebug("sending manuscript to ${provider.label} ${prefs.model}, chars=${recognized.length}")
-        val aiStartedAt = SystemClock.elapsedRealtime()
-        var firstReplyDeltaAt: Long? = null
-        var replyStarted = false
-        var streamedChars = 0
-        var replyRenderMs = 0L
-        var replyPageIndex = currentNotebookPageIndex
-        var replyChunkBuffer = StringBuilder()
-        val fullReplyBuffer = StringBuilder()
-        var replyOverflowed = false
-        val settings = ConversationSettings(
-            apiKey = prefs.apiKey,
-            model = prefs.model,
-            systemPrompt = prefs.systemPrompt(),
-            provider = provider,
-        )
-
-        fun persistReplyChunk(createdAt: Long = System.currentTimeMillis()) {
-            val chunk = replyChunkBuffer.toString()
-            if (chunk.isBlank()) return
-            val page = notebookPage(notebook, replyPageIndex).addElement(
-                ReplyElement(
-                    text = chunk,
-                    personaId = prefs.persona.name,
-                    createdAt = createdAt,
-                ),
-            )
-            notebook = notebook.withPage(page, createdAt)
-            activeNotebook = notebook
-            replyChunkBuffer = StringBuilder()
-        }
-
-        suspend fun appendReplyText(text: String, animate: Boolean) {
-            for (char in text) {
-                withContext(Dispatchers.Main) {
-                    if (replyOverflowed) return@withContext
-                    val renderStartedAt = SystemClock.elapsedRealtime()
-                    val activePage = notebookPage(notebook, replyPageIndex)
-                    val candidate = replyChunkBuffer.toString() + char
-                    if (!renderer.notebookReplyFits(activePage, candidate)) {
-                        replyOverflowed = true
-                        replyChunkBuffer = StringBuilder()
-                        fullReplyBuffer.setLength(0)
-                        currentNotebookPageIndex = replyPageIndex
-                        renderActiveNotebookPage(fullRefresh = true)
-                        setStatus("Reply too long")
-                        addDebug("reply overflow blocked on notebook page ${replyPageIndex + 1}")
-                        showReplyDoesNotFitWarning()
-                        return@withContext
-                    }
-                    if (!replyStarted) {
-                        val deltaAt = SystemClock.elapsedRealtime()
-                        firstReplyDeltaAt = deltaAt
-                        addDebug("first reply delta, ttft=${deltaAt - aiStartedAt}ms")
-                        setStatus("Reply")
-                        replyStarted = true
-                    }
-                    currentNotebookPageIndex = replyPageIndex
-                    fullReplyBuffer.append(char)
-                    replyChunkBuffer.append(char)
-                    renderActiveNotebookPage(
-                        draftReply = replyChunkBuffer.toString(),
-                        fullRefresh = false,
-                    )
-                    replyRenderMs += SystemClock.elapsedRealtime() - renderStartedAt
-                    streamedChars += 1
-                }
-                if (replyOverflowed) return
-                if (animate) {
-                    delay(if (char.isWhitespace()) STREAM_WORD_GAP_MS else STREAM_CHARACTER_GAP_MS)
-                }
-            }
-        }
-
-        val result = engine.streamMessage(settings, recognized) { delta ->
-            if (delta.isNotEmpty() && !replyOverflowed) {
-                appendReplyText(delta, animate = true)
-            }
-        }
-
-        if (!replyOverflowed) {
-            when (result) {
-                is AnthropicResult.Success -> {
-                    val totalMs = SystemClock.elapsedRealtime() - aiStartedAt
-                    val ttft = firstReplyDeltaAt?.let { "${it - aiStartedAt}ms" } ?: "n/a"
-                    addDebug(
-                        "reply done: ${provider.label} ${prefs.model}, ttft=$ttft, stream+render=${totalMs}ms, render=${replyRenderMs}ms, chars=${result.text.length}, visible=$streamedChars",
-                    )
-                    if (!replyStarted) {
-                        appendReplyText(result.text, animate = true)
-                    }
-                }
-                is AnthropicResult.Failure -> {
-                    val error = ErrorMapper.from(result.kind)
-                    val totalMs = SystemClock.elapsedRealtime() - aiStartedAt
-                    addDebug(
-                        "ai failed: ${provider.label} ${prefs.model}, ${result.kind}, total=${totalMs}ms${result.detail?.let { " - ${it.shortForDebug()}" }.orEmpty()}",
-                    )
-                    replyChunkBuffer = StringBuilder()
-                    fullReplyBuffer.setLength(0)
-                    currentNotebookPageIndex = replyPageIndex
-                    renderActiveNotebookPage(fullRefresh = true)
-                    engine.replaceHistory(notebook.rebuildApiHistory())
-                    setStatus("AI error: ${result.kind}")
-                    showAiFailureWarning(error)
-                }
-            }
-        }
-
-        if (replyOverflowed) {
-            engine.replaceHistory(notebook.rebuildApiHistory())
-        }
-        if (!replyOverflowed && fullReplyBuffer.isNotBlank()) {
-            persistReplyChunk()
-            activeNotebook = notebook
-            currentNotebookPageIndex = replyPageIndex
-            notebookStore.save(notebook)
-            renderActiveNotebookPage()
-        }
-        captureController?.setInputEnabled(true)
-        busy = false
-    }
-
-    private fun schedulePromptFade(strokes: List<InkStroke>) {
+    private fun schedulePromptFade(strokes: List<InkStroke>): Job {
         promptFadeJob?.cancel()
         addDebug("prompt fade scheduled in ${PROMPT_FADE_DELAY_MS}ms")
-        promptFadeJob = lifecycleScope.launch {
+        val job = lifecycleScope.launch {
             delay(PROMPT_FADE_DELAY_MS)
             fadePrompt(strokes)
         }
+        promptFadeJob = job
+        return job
     }
 
     private suspend fun fadePrompt(strokes: List<InkStroke>) {
         addDebug("prompt fade started")
-        renderer.showCapturedStrokes(strokes)
         captureController?.hideRawInkLayer()
-        renderer.fadeStrokes(strokes)
+        renderer.fadeStrokes(strokes, includeFullOpacityFrame = false)
+        showFadeDisclosureOnce()
         addDebug("prompt fade done")
+    }
+
+    private fun showFadeDisclosureOnce() {
+        if (prefs.hasSeenFadeDisclosure) return
+        prefs.hasSeenFadeDisclosure = true
+        cancelFadeDisclosure()
+        fadeDisclosureJob = lifecycleScope.launch {
+            renderer.showBottomLine(FADE_DISCLOSURE)
+            delay(FADE_DISCLOSURE_VISIBLE_MS)
+            renderer.fadeBottomLine(FADE_DISCLOSURE)
+            fadeDisclosureJob = null
+        }
+    }
+
+    private fun cancelFadeDisclosure(clearPageLayer: Boolean = false) {
+        val hadDisclosure = fadeDisclosureJob != null
+        fadeDisclosureJob?.cancel()
+        fadeDisclosureJob = null
+        if (clearPageLayer && hadDisclosure && ::renderer.isInitialized) {
+            renderer.clear()
+        }
     }
 
     private suspend fun writeReplyDelta(delta: String) {
@@ -769,7 +627,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
     private fun openSettings() {
         if (settingsPanel != null) return
+        cancelFadeDisclosure(clearPageLayer = true)
         captureController?.setInputEnabled(false)
+        topBar.visibility = View.INVISIBLE
         val panel = SettingsPanel(
             context = this,
             prefs = prefs,
@@ -793,18 +653,15 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             root.removeView(panel)
         }
         settingsPanel = null
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            renderActiveNotebookPage()
+        topBar.visibility = View.VISIBLE
+        if (historyOpen) {
+            renderHistoryPage()
         }
         refreshCaptureEnabled()
     }
 
     override fun onClearConversation() {
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            burnNotebook()
-        } else {
-            clearPage()
-        }
+        clearPage()
     }
 
     override fun onHandwritingStyleChanged() {
@@ -827,150 +684,161 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         addDebug("toolbar log button: ${if (prefs.showToolbarLogButton) "shown" else "hidden"}")
     }
 
-    override fun onNotebookSettingsChanged() {
-        val nextMode = prefs.diaryModeFor(prefs.persona)
-        val modeChanged = nextMode != activeDiaryMode
-        activeDiaryMode = nextMode
-        promptFadeJob?.cancel()
-        promptFadeJob = null
-        commitTimer?.cancel()
-        commitJob?.cancel()
-        commitJob = null
-        busy = false
-        strokeStore.clear()
-        pendingManuscriptInkSegments.clear()
-        replyOverlay.clearReply()
-        captureController?.clearRawInkLayer()
-
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            loadActiveNotebook()
-        } else {
-            activeNotebook = null
-            currentNotebookPageIndex = 0
-            engine.clearHistory()
-            renderer.clear()
-            renderer.drawInitialHint()
-        }
-        refreshCaptureEnabled()
-        val change = if (modeChanged) ", mode=${activeDiaryMode.label}" else ""
-        addDebug("notebook settings changed: ${prefs.persona.label}$change")
+    override fun currentNotebookTitle(): String {
+        return activeNotebook?.title.orEmpty()
     }
 
-    private fun loadActiveNotebook() {
-        val notebook = notebookStore.loadOrCreate(prefs.persona)
-        activeNotebook = notebook
-        currentNotebookPageIndex = notebook.lastPage().index
-        engine.replaceHistory(notebook.rebuildApiHistory())
-        renderActiveNotebookPage()
-        if (::surfaceView.isInitialized) {
-            surfaceView.postDelayed({
-                if (activeDiaryMode == DiaryMode.Manuscript && settingsPanel == null) {
-                    renderActiveNotebookPage()
+    override fun currentNotebookPersona(): Persona {
+        return activeNotebook?.personaId?.let { Persona.fromStoredName(it) } ?: prefs.persona
+    }
+
+    override fun onNotebookTitleChanged(title: String) {
+        val notebook = activeNotebook ?: loadActiveNotebook()
+        val updated = notebook.withTitle(title, System.currentTimeMillis())
+        activeNotebook = updated
+        lifecycleScope.launch { notebookStore.save(updated) }
+        addDebug("notebook title saved: ${updated.title}")
+    }
+
+    override fun onNotebookPersonaChanged(persona: Persona) {
+        val notebook = activeNotebook ?: loadActiveNotebook()
+        val updated = notebook.withPersona(persona, System.currentTimeMillis())
+        activeNotebook = updated
+        prefs.persona = persona
+        voiceChangedForNextRequest = true
+        engine.replaceHistory(updated.rebuildApiHistory())
+        lifecycleScope.launch { notebookStore.save(updated) }
+        addDebug("notebook persona saved: ${persona.label}")
+    }
+
+    private fun loadActiveNotebook(): Notebook {
+        val result = notebookStore.loadOrCreateActive(prefs.activeNotebookId, prefs.persona)
+        var notebook = when (result) {
+            is NotebookLoadResult.Ready -> result.notebook
+            is NotebookLoadResult.Recovered -> {
+                addDebug("notebook recovered: ${result.detail.orEmpty()}")
+                result.notebook
+            }
+        }
+        if (!prefs.hasNormalizedBlankCustomPersona) {
+            val loadedPersona = Persona.fromStoredName(notebook.personaId)
+            if (loadedPersona == Persona.Custom && prefs.customPrompt.isBlank()) {
+                notebook = notebook.withPersona(Persona.default, System.currentTimeMillis())
+                lifecycleScope.launch {
+                    runCatching { notebookStore.save(notebook) }
                 }
-            }, SURFACE_REPAINT_DELAY_MS)
+                addDebug("notebook persona normalized: Custom without prompt -> ${Persona.default.name}")
+            }
+            prefs.hasNormalizedBlankCustomPersona = true
         }
-        refreshCaptureEnabled()
-        addDebug("notebook loaded: ${prefs.persona.name}, pages=${notebook.pages.size}, history=${engine.historySnapshot().size}")
+        activeNotebook = notebook
+        prefs.activeNotebookId = notebook.id
+        prefs.persona = Persona.fromStoredName(notebook.personaId)
+        engine.replaceHistory(notebook.rebuildApiHistory())
+        addDebug("notebook loaded: id=${notebook.id}, title=${notebook.title}, persona=${notebook.personaId}, exchanges=${notebook.exchanges.size}")
+        return notebook
     }
 
-    private fun renderActiveNotebookPage(
-        draftStrokes: List<InkStroke> = emptyList(),
-        draftReply: String = "",
-        showPageStatus: Boolean? = null,
-        fullRefresh: Boolean = true,
-        dirtyRect: RectF? = null,
-    ) {
-        val notebook = activeNotebook ?: return
-        val page = notebookPage(notebook, currentNotebookPageIndex)
-        val pendingStrokes = pendingManuscriptInkSegments
-            .filter { it.pageIndex == currentNotebookPageIndex }
-            .flatMap { it.strokes }
+    private fun renderHistoryPage(fullRefresh: Boolean = true) {
+        if (!historyOpen) return
+        val page = historyPages.getOrNull(historyPageIndex) ?: return
         renderer.renderNotebookPage(
             page = page,
-            pageIndex = currentNotebookPageIndex,
-            pageCount = notebook.pages.size,
-            showPageStatus = showPageStatus ?: (notebook.pages.size > 1),
-            pageStatus = "Editable",
-            draftStrokes = pendingStrokes + draftStrokes,
-            draftReply = draftReply,
+            pageIndex = historyPageIndex,
+            pageCount = historyPages.size,
+            showPageStatus = historyPages.size > 1,
+            pageStatus = "History",
             fullRefresh = fullRefresh,
-            dirtyRect = dirtyRect,
+            showContinuationMark = historyPageIndex < historyPages.lastIndex,
         )
     }
 
-    private fun notebookPage(notebook: Notebook, index: Int): NotebookPage {
-        return notebook.pages.firstOrNull { it.index == index } ?: notebook.lastPage()
+    private fun openHistory(showEmptyWarning: Boolean = false) {
+        val notebook = activeNotebook ?: loadActiveNotebook()
+        if (notebook.exchanges.isEmpty()) {
+            addDebug("history empty")
+            if (showEmptyWarning) {
+                showWarningDialog(
+                    title = "Nothing to read yet",
+                    message = "Write something first, then come back to read the notebook.",
+                )
+            }
+            return
+        }
+        cancelFadeDisclosure()
+        historyPages = renderer.historyPagesFor(notebook)
+        historyPageIndex = historyPages.lastIndex
+        historyOpen = true
+        promptFadeJob?.cancel()
+        promptFadeJob = null
+        replyOverlay.clearReply()
+        renderTopBar()
+        captureController?.setReadOnlyInputEnabled(true)
+        renderHistoryPage(fullRefresh = true)
+        setStatus("History")
+        addDebug("history opened: pages=${historyPages.size}, exchanges=${notebook.exchanges.size}")
     }
 
-    private fun handleNotebookTap(x: Float): Boolean {
+    private fun closeHistory() {
+        cancelFadeDisclosure()
+        historyOpen = false
+        historyPages = emptyList()
+        historyPageIndex = 0
+        renderTopBar()
+        captureController?.clearRawInkLayer()
+        renderer.clear()
+        renderer.drawInitialHint()
+        refreshCaptureEnabled()
+        setStatus("Idle")
+        addDebug("history closed")
+    }
+
+    private fun handleHistoryTap(x: Float): Boolean {
         val width = surfaceView.width.takeIf { it > 0 } ?: return false
         val hotZone = PAGE_TURN_HOT_ZONE_DP.dp().toFloat()
         return when {
             x <= hotZone -> {
-                turnNotebookPage(-1)
+                turnHistoryPage(-1)
                 true
             }
             x >= width - hotZone -> {
-                turnNotebookPage(1)
+                turnHistoryPage(1)
                 true
             }
             else -> false
         }
     }
 
-    private fun turnNotebookPage(delta: Int) {
-        val notebook = activeNotebook ?: return
+    private fun turnHistoryPage(delta: Int) {
         if (busy) return
-        val pages = notebook.pages.sortedBy { it.index }
-        val currentPosition = pages.indexOfFirst { it.index == currentNotebookPageIndex }
-            .takeIf { it >= 0 }
-            ?: pages.lastIndex
-        if (delta > 0 && currentPosition == pages.lastIndex) {
-            if (!hasWritableNotebookContent(notebook, currentNotebookPageIndex)) {
-                addDebug("already on blank last notebook page")
-                return
-            }
-            stashCurrentManuscriptStrokes()
-            val updated = notebook.withFreshPage(System.currentTimeMillis())
-            activeNotebook = updated
-            currentNotebookPageIndex = updated.lastPage().index
-            lifecycleScope.launch { notebookStore.save(updated) }
-            renderActiveNotebookPage()
-            refreshCaptureEnabled()
-            addDebug("fresh notebook page ${currentNotebookPageIndex + 1}/${updated.pages.size}")
-            return
+        if (!historyOpen) return
+        cancelFadeDisclosure()
+        val next = (historyPageIndex + delta).coerceIn(0, historyPages.lastIndex)
+        if (next == historyPageIndex) return
+        historyPageIndex = next
+        renderHistoryPage(fullRefresh = true)
+        addDebug("history page ${historyPageIndex + 1}/${historyPages.size}")
+    }
+
+    private fun handleToolbarRead() {
+        if (historyOpen) {
+            closeHistory()
+        } else {
+            openHistory(showEmptyWarning = true)
         }
-        val nextPosition = (currentPosition + delta).coerceIn(0, pages.lastIndex)
-        if (nextPosition == currentPosition) return
-        stashCurrentManuscriptStrokes()
-        currentNotebookPageIndex = pages[nextPosition].index
-        captureController?.clearRawInkLayer()
-        renderActiveNotebookPage()
-        refreshCaptureEnabled()
-        addDebug("notebook page ${currentNotebookPageIndex + 1}/${pages.size}")
-    }
-
-    private fun hasWritableNotebookContent(notebook: Notebook, pageIndex: Int): Boolean {
-        return notebookPage(notebook, pageIndex).elements.isNotEmpty() ||
-            pendingManuscriptInkSegments.any { it.pageIndex == pageIndex && it.strokes.isNotEmpty() } ||
-            !strokeStore.isEmpty()
-    }
-
-    private fun stashCurrentManuscriptStrokes() {
-        if (strokeStore.isEmpty()) return
-        val strokes = strokeStore.snapshotStrokes()
-        pendingManuscriptInkSegments.add(PendingInkSegment(currentNotebookPageIndex, strokes))
-        strokeStore.clear()
-        captureController?.clearRawInkLayer()
-        addDebug("stashed ${strokes.size} stroke(s) on page ${currentNotebookPageIndex + 1}")
     }
 
     private fun refreshCaptureEnabled() {
         if (settingsPanel != null || busy) return
-        captureController?.setInputEnabled(true)
+        if (historyOpen) {
+            captureController?.setReadOnlyInputEnabled(true)
+        } else {
+            captureController?.setInputEnabled(true)
+        }
     }
 
     private fun clearPage() {
+        cancelFadeDisclosure()
         promptFadeJob?.cancel()
         promptFadeJob = null
         commitTimer?.cancel()
@@ -982,23 +850,15 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         }
         captureController?.clearRawInkLayer()
         strokeStore.clear()
-        pendingManuscriptInkSegments.clear()
         replyOverlay.clearReply()
-        if (activeDiaryMode == DiaryMode.Manuscript) {
-            renderActiveNotebookPage()
-            refreshCaptureEnabled()
-            setStatus("Idle")
-            addDebug("manuscript draft cleared")
-        } else {
-            engine.clearHistory()
-            renderer.clear()
-            renderer.drawInitialHint()
-            setStatus("Idle")
-            addDebug("page cleared")
-        }
+        renderer.clear()
+        renderer.drawInitialHint()
+        setStatus("Idle")
+        addDebug("page cleared")
     }
 
-    private fun burnNotebook() {
+    override fun onBurnNotebook() {
+        cancelFadeDisclosure()
         promptFadeJob?.cancel()
         promptFadeJob = null
         commitTimer?.cancel()
@@ -1007,14 +867,20 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         busy = false
         captureController?.clearRawInkLayer()
         strokeStore.clear()
-        pendingManuscriptInkSegments.clear()
         replyOverlay.clearReply()
         lifecycleScope.launch {
-            val fresh = notebookStore.burn(prefs.persona)
+            val current = activeNotebook
+            val fresh = notebookStore.burn(current?.id.orEmpty(), prefs.persona)
             activeNotebook = fresh
-            currentNotebookPageIndex = fresh.lastPage().index
+            prefs.activeNotebookId = fresh.id
+            prefs.persona = Persona.fromStoredName(fresh.personaId)
+            historyOpen = false
+            historyPages = emptyList()
+            historyPageIndex = 0
             engine.clearHistory()
-            renderActiveNotebookPage()
+            renderTopBar()
+            renderer.clear()
+            renderer.drawInitialHint()
             refreshCaptureEnabled()
             setStatus("Idle")
             addDebug("notebook burned")
@@ -1022,25 +888,16 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     private fun handleToolbarErase() {
-        if (activeDiaryMode != DiaryMode.Manuscript) {
-            clearPage()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Burn this notebook")
-            .setMessage("Delete the saved manuscript pages for ${prefs.persona.label}?")
-            .setPositiveButton("Burn") { _, _ ->
-                burnNotebook()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        clearPage()
     }
 
-    private fun showReplyDoesNotFitWarning() {
-        showWarningDialog(
-            title = "Reply does not fit",
-            message = "There is not enough room on this page for the reply. Turn to a page with more space and try again.",
-        )
+    private fun confirmBurnNotebookFromHistory() {
+        AlertDialog.Builder(this)
+            .setTitle("Burn this notebook?")
+            .setMessage("This permanently deletes the saved notebook on this device.")
+            .setPositiveButton("Burn") { _, _ -> onBurnNotebook() }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showMissingApiKeyWarning(providerLabel: String) {
@@ -1075,6 +932,10 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
     private fun renderTopBar(container: LinearLayout = topBar) {
         container.removeAllViews()
+        if (historyOpen) {
+            renderHistoryTopBar(container)
+            return
+        }
         container.setBackgroundColor(if (toolbarImmersive) Color.TRANSPARENT else Color.WHITE)
 
         val row = LinearLayout(this).apply {
@@ -1092,8 +953,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
                         1f,
                     ),
                 )
-                val eraseLabel = if (activeDiaryMode == DiaryMode.Manuscript) "Burn notebook" else "Erase page"
-                addView(iconButton(R.drawable.ic_toolbar_eraser, eraseLabel) { handleToolbarErase() })
+                addView(iconButton(R.drawable.ic_toolbar_eraser, "Erase page") { handleToolbarErase() })
+                addView(iconButton(R.drawable.ic_toolbar_book_open, "Read notebook") { handleToolbarRead() })
                 if (prefs.showToolbarLogButton) {
                     addView(iconButton(R.drawable.ic_toolbar_terminal, "AI log") { toggleDebugPanel() })
                 }
@@ -1117,6 +978,60 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
                 ),
             )
         }
+    }
+
+    private fun renderHistoryTopBar(container: LinearLayout) {
+        container.setBackgroundColor(Color.WHITE)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(22), dp(4), dp(12), dp(4))
+
+            addView(
+                ImageButton(context).apply {
+                    contentDescription = "Back"
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    setBackgroundColor(Color.TRANSPARENT)
+                    setImageResource(R.drawable.ic_nav_back)
+                    scaleType = ImageView.ScaleType.CENTER
+                    setPadding(dp(10), dp(10), dp(10), dp(10))
+                    setOnClickListener { closeHistory() }
+                },
+                LinearLayout.LayoutParams(
+                    dp(54),
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            addView(
+                TextView(context).apply {
+                    text = "History"
+                    gravity = Gravity.CENTER_VERTICAL
+                    includeFontPadding = false
+                    paperText(25f)
+                },
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    1f,
+                ),
+            )
+            addView(iconButton(R.drawable.ic_toolbar_trash, "Burn notebook") { confirmBurnNotebookFromHistory() })
+        }
+        container.addView(
+            row,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f,
+            ),
+        )
+        container.addView(
+            View(this).apply { setBackgroundColor(Color.BLACK) },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(2),
+            ),
+        )
     }
 
     private fun toolbarBrandButton(): LinearLayout {
@@ -1261,34 +1176,6 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             ?: DEBUG_REPLY_FALLBACK
     }
 
-    private fun applyDebugLaunchOverrides(intent: Intent?): Boolean {
-        if (!BuildConfig.DEBUG || intent?.action != DEBUG_REPLY_ACTION) return false
-        var changed = false
-        intent.getStringExtra(DEBUG_PERSONA_EXTRA)
-            ?.let { Persona.fromStoredName(it) }
-            ?.let { persona ->
-                if (prefs.persona != persona) {
-                    prefs.persona = persona
-                    changed = true
-                }
-            }
-        intent.getStringExtra(DEBUG_MODE_EXTRA)
-            ?.let { rawMode ->
-                DiaryMode.entries.firstOrNull {
-                    it.name.equals(rawMode, ignoreCase = true) ||
-                        it.label.equals(rawMode, ignoreCase = true)
-                }
-            }
-            ?.let { mode ->
-                val persona = prefs.persona
-                if (prefs.diaryModeFor(persona) != mode) {
-                    prefs.setDiaryMode(persona, mode)
-                    changed = true
-                }
-            }
-        return changed
-    }
-
     private fun drawPendingDebugReplyIfReady() {
         val text = pendingDebugReply ?: return
         if (!::replyOverlay.isInitialized || !::surfaceView.isInitialized) return
@@ -1297,96 +1184,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         pendingDebugReply = null
         setStatus("Reply")
         lifecycleScope.launch {
-            if (activeDiaryMode == DiaryMode.Manuscript) {
-                drawDebugManuscriptReply(text)
-            } else {
-                replyOverlay.revealReply(text)
-                addDebug("debug reply drawn, chars=${text.length}")
-            }
+            replyOverlay.revealReply(text)
+            addDebug("debug reply drawn, chars=${text.length}")
         }
-    }
-
-    private suspend fun drawDebugManuscriptReply(text: String) {
-        if (!BuildConfig.DEBUG) return
-        busy = true
-        captureController?.setInputEnabled(false)
-        try {
-            var notebook = activeNotebook ?: notebookStore.loadOrCreate(prefs.persona)
-            activeNotebook = notebook
-            var replyPageIndex = notebook.lastPage().index
-            currentNotebookPageIndex = replyPageIndex
-            var replyChunkBuffer = StringBuilder()
-            var replyOverflowed = false
-
-            fun persistReplyChunk(createdAt: Long = System.currentTimeMillis()) {
-                val chunk = replyChunkBuffer.toString()
-                if (chunk.isBlank()) return
-                val page = notebookPage(notebook, replyPageIndex).addElement(
-                    ReplyElement(
-                        text = chunk,
-                        personaId = prefs.persona.name,
-                        createdAt = createdAt,
-                    ),
-                )
-                notebook = notebook.withPage(page, createdAt)
-                activeNotebook = notebook
-                replyChunkBuffer = StringBuilder()
-            }
-
-            replyTokens(text).forEach { token ->
-                if (replyOverflowed) return@forEach
-                val activePage = notebookPage(notebook, replyPageIndex)
-                val candidate = replyChunkBuffer.toString() + token
-                if (!renderer.notebookReplyFits(activePage, candidate)) {
-                    replyOverflowed = true
-                    replyChunkBuffer = StringBuilder()
-                    currentNotebookPageIndex = replyPageIndex
-                    renderActiveNotebookPage(fullRefresh = true)
-                    setStatus("Reply too long")
-                    addDebug("debug reply overflow blocked on notebook page ${replyPageIndex + 1}")
-                    showReplyDoesNotFitWarning()
-                } else {
-                    currentNotebookPageIndex = replyPageIndex
-                    replyChunkBuffer.append(token)
-                }
-            }
-            if (!replyOverflowed) {
-                persistReplyChunk()
-            }
-            currentNotebookPageIndex = replyPageIndex
-            activeNotebook = notebook
-            notebookStore.save(notebook)
-            renderActiveNotebookPage()
-            setStatus("Idle")
-            if (replyOverflowed) {
-                addDebug("debug manuscript reply discarded, chars=${text.length}, pages=${notebook.pages.size}")
-            } else {
-                addDebug("debug manuscript reply drawn, chars=${text.length}, pages=${notebook.pages.size}")
-            }
-        } finally {
-            captureController?.setInputEnabled(true)
-            busy = false
-        }
-    }
-
-    private fun replyTokens(text: String): List<String> {
-        if (text.isEmpty()) return emptyList()
-        val tokens = mutableListOf<String>()
-        val current = StringBuilder()
-        var currentWhitespace = text.first().isWhitespace()
-        text.forEach { char ->
-            val whitespace = char.isWhitespace()
-            if (current.isNotEmpty() && whitespace != currentWhitespace) {
-                tokens.add(current.toString())
-                current.clear()
-                currentWhitespace = whitespace
-            }
-            current.append(char)
-        }
-        if (current.isNotEmpty()) {
-            tokens.add(current.toString())
-        }
-        return tokens
     }
 
     private fun currentHandwritingFont(): HandwritingFont {
@@ -1461,12 +1261,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         private const val STREAM_CHARACTER_GAP_MS = 24L
         private const val STREAM_WORD_GAP_MS = 55L
         private const val PAGE_TURN_HOT_ZONE_DP = 48
-        private const val SURFACE_REPAINT_DELAY_MS = 180L
         private const val DEBUG_REPLY_ACTION = "com.inkwell.diary.DEBUG_REPLY"
         private const val DEBUG_REPLY_EXTRA = "reply"
-        private const val DEBUG_PERSONA_EXTRA = "persona"
-        private const val DEBUG_MODE_EXTRA = "mode"
         private const val DEBUG_REPLY_FALLBACK = "This is a handwriting reply test."
         private const val DEBUG_LOG_TAG = "InkwellDebug"
+        private const val FADE_DISCLOSURE = "The ink fades from the page, but the diary keeps every word. Flip back anytime."
+        private const val FADE_DISCLOSURE_VISIBLE_MS = 5_000L
     }
 }

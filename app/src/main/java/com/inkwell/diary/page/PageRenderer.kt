@@ -14,6 +14,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import com.inkwell.diary.data.InkElement
 import com.inkwell.diary.data.InkStroke
+import com.inkwell.diary.data.Notebook
 import com.inkwell.diary.data.NotebookElement
 import com.inkwell.diary.data.NotebookPage
 import com.inkwell.diary.data.ReplyElement
@@ -154,9 +155,13 @@ class PageRenderer(
         render(full = true)
     }
 
-    suspend fun fadeStrokes(strokes: List<InkStroke>) {
+    suspend fun fadeStrokes(strokes: List<InkStroke>, includeFullOpacityFrame: Boolean = true) {
         val c = canvas ?: return
-        val alphas = listOf(255, 170, 96, 32, 0)
+        val alphas = if (includeFullOpacityFrame) {
+            listOf(255, 170, 96, 32, 0)
+        } else {
+            listOf(170, 96, 32, 0)
+        }
         alphas.forEachIndexed { index, alpha ->
             drawPaper()
             if (alpha > 0) {
@@ -201,6 +206,28 @@ class PageRenderer(
         render(full = true)
     }
 
+    fun showBottomLine(text: String) {
+        val b = bitmap ?: return
+        val y = b.height - margin().toFloat() - scriptPaint.textSize
+        canvas?.drawText(text, margin().toFloat(), y, hintPaint)
+        render(full = false)
+    }
+
+    suspend fun fadeBottomLine(text: String) {
+        val b = bitmap ?: return
+        val y = b.height - margin().toFloat() - scriptPaint.textSize
+        listOf(160, 80, 0).forEachIndexed { index, alpha ->
+            drawPaper()
+            if (alpha > 0) {
+                hintPaint.alpha = alpha
+                canvas?.drawText(text, margin().toFloat(), y, hintPaint)
+                hintPaint.alpha = 255
+            }
+            render(full = false)
+            if (index < 2) delay(STROKE_FADE_STEP_MS)
+        }
+    }
+
     fun showCapturedStrokes(strokes: List<InkStroke>, dirtyRect: RectF? = null) {
         val c = canvas ?: return
         resetInkPaint()
@@ -219,6 +246,7 @@ class PageRenderer(
         draftReply: String = "",
         fullRefresh: Boolean = true,
         dirtyRect: RectF? = null,
+        showContinuationMark: Boolean = false,
     ) {
         val c = canvas ?: return
         lastReplyBitmap?.recycle()
@@ -244,14 +272,78 @@ class PageRenderer(
         if (showPageStatus && pageCount > 1) {
             drawPageStatus(pageIndex, pageCount, pageStatus.orEmpty())
         }
+        if (showContinuationMark) {
+            drawContinuationMark()
+        }
         render(full = fullRefresh, dirtyRect = dirtyRect?.toPaddedRect())
     }
 
     fun notebookReplyFits(page: NotebookPage, replyText: String): Boolean {
-        if (replyText.isBlank()) return true
-        val top = nextReplyTop(page.elements)
-        val layout = textLayout(replyText)
-        return top + layout.height <= notebookContentBottom()
+        return replyFits(page.elements, replyText)
+    }
+
+    fun historyPagesFor(notebook: Notebook): List<NotebookPage> {
+        val pages = mutableListOf<NotebookPage>()
+        notebook.exchanges.sortedBy { it.committedAt }.forEach { exchange ->
+            val baseElements = buildList {
+                exchange.ink?.let { ink ->
+                    add(
+                        InkElement(
+                            strokes = ink.strokes,
+                            committedAt = exchange.committedAt,
+                            recognizedText = ink.recognizedText,
+                        ),
+                    )
+                }
+            }
+            val reply = exchange.reply
+            val replyText = reply?.text.orEmpty()
+            if (replyText.isBlank()) {
+                pages.add(NotebookPage(index = pages.size, elements = baseElements))
+                return@forEach
+            }
+
+            var remaining = replyText
+            var pageBase = baseElements
+            while (remaining.isNotBlank()) {
+                val chunk = fittingReplyChunk(pageBase, remaining)
+                if (chunk.isBlank()) {
+                    if (pageBase.isEmpty()) {
+                        val forced = remaining.take(FORCED_REPLY_CHUNK_CHARS)
+                        pages.add(
+                            NotebookPage(
+                                index = pages.size,
+                                elements = listOf(
+                                    ReplyElement(
+                                        text = forced,
+                                        personaId = reply?.personaId ?: notebook.personaId,
+                                        createdAt = reply?.createdAt ?: exchange.committedAt,
+                                    ),
+                                ),
+                            ),
+                        )
+                        remaining = remaining.drop(forced.length).trimStart()
+                        continue
+                    }
+                    pages.add(NotebookPage(index = pages.size, elements = pageBase))
+                    pageBase = emptyList()
+                    continue
+                }
+                pages.add(
+                    NotebookPage(
+                        index = pages.size,
+                        elements = pageBase + ReplyElement(
+                            text = chunk,
+                            personaId = reply?.personaId ?: notebook.personaId,
+                            createdAt = reply?.createdAt ?: exchange.committedAt,
+                        ),
+                    ),
+                )
+                remaining = remaining.removePrefix(chunk).trimStart()
+                pageBase = emptyList()
+            }
+        }
+        return pages.ifEmpty { listOf(NotebookPage(index = 0)) }
     }
 
     private fun ensureBitmap(width: Int, height: Int): Boolean {
@@ -298,10 +390,32 @@ class PageRenderer(
         return cursor.coerceAtMost(notebookContentBottom().toFloat())
     }
 
+    private fun replyFits(elements: List<NotebookElement>, replyText: String): Boolean {
+        if (replyText.isBlank()) return true
+        val top = nextReplyTop(elements)
+        val layout = textLayout(replyText)
+        return top + layout.height <= notebookContentBottom()
+    }
+
+    private fun fittingReplyChunk(elements: List<NotebookElement>, text: String): String {
+        if (replyFits(elements, text)) return text
+        val tokens = Regex("""\S+\s*|\s+""").findAll(text).map { it.value }.toList()
+        val chunk = StringBuilder()
+        tokens.forEach { token ->
+            val candidate = chunk.toString() + token
+            if (replyFits(elements, candidate)) {
+                chunk.append(token)
+            } else {
+                return chunk.toString().trimEnd()
+            }
+        }
+        return chunk.toString().trimEnd()
+    }
+
     private fun drawNotebookReply(c: Canvas, text: String, top: Float): Boolean {
         if (text.isBlank()) return false
         val previousColor = scriptPaint.color
-        scriptPaint.color = Color.BLACK
+        scriptPaint.color = Color.rgb(70, 70, 70)
         val layout = textLayout(text)
         c.save()
         c.translate(margin().toFloat(), top)
@@ -355,6 +469,17 @@ class PageRenderer(
         if (status.isNotBlank()) {
             canvas?.drawText(status, margin().toFloat(), b.height - margin().toFloat() / 2f, bannerPaint)
         }
+    }
+
+    private fun drawContinuationMark() {
+        val b = bitmap ?: return
+        val text = "⌐"
+        canvas?.drawText(
+            text,
+            b.width - margin().toFloat() - bannerPaint.measureText(text),
+            b.height - margin().toFloat() / 2f,
+            bannerPaint,
+        )
     }
 
     private fun render(full: Boolean, dirtyRect: Rect? = null) {
@@ -425,6 +550,7 @@ class PageRenderer(
         private const val REPLY_AFTER_REPLY_GAP_DP = 26
         private const val INK_COLOR = -0x1000000
         private const val STROKE_FADE_STEP_MS = 125L
+        private const val FORCED_REPLY_CHUNK_CHARS = 120
     }
 }
 

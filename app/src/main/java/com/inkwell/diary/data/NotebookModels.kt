@@ -1,52 +1,56 @@
 package com.inkwell.diary.data
 
 import com.inkwell.diary.brain.AnthropicMessage
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class Notebook(
     val id: String,
+    val title: String,
     val personaId: String,
     val createdAt: Long,
     val updatedAt: Long,
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
-    val pages: List<NotebookPage> = listOf(NotebookPage(index = 0)),
+    val exchanges: List<Exchange> = emptyList(),
 ) {
-    fun lastPage(): NotebookPage = pages.maxByOrNull { it.index } ?: NotebookPage(index = 0)
-
-    fun withPage(page: NotebookPage, updatedAt: Long): Notebook {
-        val replaced = pages.filterNot { it.index == page.index } + page
+    fun withExchange(exchange: Exchange, updatedAt: Long): Notebook {
+        val replaced = exchanges.filterNot { it.id == exchange.id } + exchange
         return copy(
             updatedAt = updatedAt,
-            pages = replaced.sortedBy { it.index }.ifEmpty { listOf(NotebookPage(index = 0)) },
+            exchanges = replaced.sortedBy { it.committedAt },
         )
     }
 
-    fun withFreshPage(updatedAt: Long): Notebook {
-        val nextIndex = (pages.maxOfOrNull { it.index } ?: -1) + 1
-        return copy(
-            updatedAt = updatedAt,
-            pages = pages + NotebookPage(index = nextIndex),
-        )
+    fun withPersona(persona: Persona, updatedAt: Long): Notebook {
+        return copy(personaId = persona.name, updatedAt = updatedAt)
     }
 
-    fun withoutRedundantTrailingBlankPages(): Notebook {
-        val sorted = pages.sortedBy { it.index }.ifEmpty { listOf(NotebookPage(index = 0)) }
-        var keepCount = sorted.size
-        while (
-            keepCount > 1 &&
-            sorted[keepCount - 1].elements.isEmpty() &&
-            sorted[keepCount - 2].elements.isEmpty()
-        ) {
-            keepCount -= 1
-        }
-        val trimmed = sorted.take(keepCount)
-        return if (trimmed == pages) this else copy(pages = trimmed)
+    fun withTitle(title: String, updatedAt: Long): Notebook {
+        return copy(title = title.ifBlank { DEFAULT_NOTEBOOK_TITLE }, updatedAt = updatedAt)
     }
 }
 
 @Serializable
+data class Exchange(
+    val id: String,
+    val committedAt: Long,
+    val ink: NotebookInk? = null,
+    val reply: NotebookReply? = null,
+)
+
+@Serializable
+data class NotebookInk(
+    val strokes: List<InkStroke>,
+    val recognizedText: String,
+)
+
+@Serializable
+data class NotebookReply(
+    val text: String,
+    val personaId: String,
+    val createdAt: Long,
+)
+
 data class NotebookPage(
     val index: Int,
     val elements: List<NotebookElement> = emptyList(),
@@ -54,13 +58,10 @@ data class NotebookPage(
     fun addElement(element: NotebookElement): NotebookPage = copy(elements = elements + element)
 }
 
-@Serializable
 sealed class NotebookElement {
     abstract val createdAt: Long
 }
 
-@Serializable
-@SerialName("ink")
 data class InkElement(
     val strokes: List<InkStroke>,
     val committedAt: Long,
@@ -69,8 +70,6 @@ data class InkElement(
     override val createdAt: Long = committedAt
 }
 
-@Serializable
-@SerialName("reply")
 data class ReplyElement(
     val text: String,
     val personaId: String,
@@ -79,41 +78,26 @@ data class ReplyElement(
 
 fun Notebook.rebuildApiHistory(maxTurns: Int = MAX_API_TURNS): List<AnthropicMessage> {
     val messages = mutableListOf<AnthropicMessage>()
-    pages.sortedBy { it.index }
-        .flatMap { it.elements }
-        .forEach { element ->
-            val next = when (element) {
-                is InkElement -> element.recognizedText
-                    .takeIf { it.isNotBlank() }
-                    ?.let { AnthropicMessage(role = "user", content = it) }
-                is ReplyElement -> element.text
-                    .takeIf { it.isNotBlank() }
-                    ?.let { AnthropicMessage(role = "assistant", content = it) }
-            }
-            if (next != null) {
-                val last = messages.lastOrNull()
-                if (last?.role == next.role) {
-                    messages[messages.lastIndex] = last.copy(
-                        content = joinAdjacentContent(last.content, next.content, next.role),
-                    )
-                } else {
-                    messages.add(next)
-                }
-            }
+    exchanges.sortedBy { it.committedAt }
+        .filter { exchange ->
+            exchange.ink?.recognizedText?.isNotBlank() == true ||
+                exchange.reply?.text?.isNotBlank() == true
         }
-    return messages.takeLast(maxTurns.coerceAtLeast(1) * 2)
+        .takeLast(maxTurns.coerceAtLeast(1))
+        .forEach { exchange ->
+            exchange.ink?.recognizedText
+                ?.takeIf { it.isNotBlank() }
+                ?.let { messages.add(AnthropicMessage(role = "user", content = it)) }
+            exchange.reply?.text
+                ?.takeIf { it.isNotBlank() }
+                ?.let { messages.add(AnthropicMessage(role = "assistant", content = it)) }
+        }
+    return messages
 }
 
-private fun joinAdjacentContent(left: String, right: String, role: String): String {
-    if (left.isBlank()) return right
-    if (right.isBlank()) return left
-    val separator = when {
-        role == "assistant" -> ""
-        left.last().isWhitespace() || right.first().isWhitespace() -> ""
-        else -> " "
-    }
-    return "$left$separator$right"
-}
-
-const val CURRENT_SCHEMA_VERSION = 1
+const val CURRENT_SCHEMA_VERSION = 2
 const val MAX_API_TURNS = 20
+const val DEFAULT_NOTEBOOK_ID = "default"
+const val DEFAULT_NOTEBOOK_TITLE = "Inka's Diary"
+
+fun newExchangeId(committedAt: Long): String = "exchange-$committedAt"
