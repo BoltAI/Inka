@@ -13,6 +13,9 @@ data class InkPoint(
     val pressure: Float = 1f,
     @SerialName("t")
     val timestampMs: Long,
+    val size: Float = 1f,
+    val tiltX: Int = 0,
+    val tiltY: Int = 0,
 )
 
 @Serializable
@@ -76,22 +79,88 @@ class StrokeStore {
 }
 
 fun drawInkStrokes(canvas: Canvas, strokes: List<InkStroke>, paint: Paint) {
+    if (strokes.sumOf { it.points.size } > DENSE_REPLAY_POINT_LIMIT) {
+        drawDenseInkStrokes(canvas, strokes, paint)
+        return
+    }
+
+    val strokePaint = Paint(paint).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        isAntiAlias = true
+    }
+    val fillPaint = Paint(strokePaint).apply {
+        style = Paint.Style.FILL
+    }
+    val baseWidth = paint.strokeWidth.coerceAtLeast(1f)
+
     strokes.forEach { stroke ->
         val points = stroke.points
         if (points.isEmpty()) return@forEach
         if (points.size == 1) {
             val p = points.first()
-            canvas.drawPoint(p.x, p.y, paint)
+            val width = replayWidth(baseWidth, p.pressure)
+            canvas.drawCircle(p.x, p.y, width / 2f, fillPaint)
             return@forEach
         }
 
-        val path = Path()
-        path.moveTo(points.first().x, points.first().y)
         var previous = points.first()
         for (point in points.drop(1)) {
-            path.quadTo(previous.x, previous.y, point.x, point.y)
+            val width = replayWidth(baseWidth, (previous.pressure + point.pressure) / 2f)
+            strokePaint.strokeWidth = width
+            canvas.drawLine(previous.x, previous.y, point.x, point.y, strokePaint)
+            canvas.drawCircle(previous.x, previous.y, width / 2f, fillPaint)
+            canvas.drawCircle(point.x, point.y, width / 2f, fillPaint)
             previous = point
         }
-        canvas.drawPath(path, paint)
     }
 }
+
+private fun drawDenseInkStrokes(canvas: Canvas, strokes: List<InkStroke>, paint: Paint) {
+    val strokePaint = Paint(paint).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        isAntiAlias = true
+        strokeWidth = paint.strokeWidth.coerceAtLeast(1f)
+    }
+    val fillPaint = Paint(strokePaint).apply {
+        style = Paint.Style.FILL
+    }
+
+    strokes.forEach { stroke ->
+        val points = stroke.points
+        if (points.isEmpty()) return@forEach
+        if (points.size == 1) {
+            val p = points.first()
+            canvas.drawCircle(p.x, p.y, strokePaint.strokeWidth / 2f, fillPaint)
+            return@forEach
+        }
+        val path = Path()
+        val first = points.first()
+        path.moveTo(first.x, first.y)
+        points.drop(1).forEach { point ->
+            path.lineTo(point.x, point.y)
+        }
+        canvas.drawPath(path, strokePaint)
+    }
+}
+
+private fun replayWidth(baseWidth: Float, rawPressure: Float): Float {
+    val pressure = normalizedPressure(rawPressure)
+    return baseWidth * (0.9f + pressure * 0.42f)
+}
+
+private fun normalizedPressure(rawPressure: Float): Float {
+    val scaled = when {
+        !rawPressure.isFinite() || rawPressure <= 0f -> 0.5f
+        rawPressure > RAW_PRESSURE_MAX -> 1f
+        rawPressure > 8f -> rawPressure / RAW_PRESSURE_MAX
+        else -> rawPressure
+    }
+    return scaled.coerceIn(0.28f, 1f)
+}
+
+private const val RAW_PRESSURE_MAX = 4096f
+private const val DENSE_REPLAY_POINT_LIMIT = 900

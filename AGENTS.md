@@ -9,6 +9,7 @@
 - Primary verification command: `./gradlew test assembleRelease`.
 - Run focused tests while iterating, then run the primary verification before handing off.
 - Boox pen latency, TouchHelper behavior, and e-ink refresh quality cannot be proven on a standard emulator. Keep emulator/fallback paths buildable, but record real-device checks in `verification.md`.
+- Do not stage or commit changes unless the user explicitly asks.
 
 ## Android Constraints
 

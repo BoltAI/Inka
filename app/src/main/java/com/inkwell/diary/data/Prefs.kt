@@ -106,6 +106,15 @@ class Prefs(context: Context) {
 
     fun systemPrompt(): String = PersonaPrompts.forPersona(persona, customPrompt)
 
+    fun diaryModeFor(persona: Persona): DiaryMode {
+        val fallback = DiaryMode.defaultFor(persona)
+        return DiaryMode.fromStoredName(plain.getString(diaryModeKey(persona), null), fallback)
+    }
+
+    fun setDiaryMode(persona: Persona, mode: DiaryMode) {
+        plain.edit { putString(diaryModeKey(persona), mode.name) }
+    }
+
     private fun apiKeyKey(provider: AiProvider): String {
         return when (provider) {
             AiProvider.Anthropic -> KEY_API_KEY
@@ -121,6 +130,8 @@ class Prefs(context: Context) {
             AiProvider.Groq -> KEY_GROQ_MODEL
         }
     }
+
+    private fun diaryModeKey(persona: Persona): String = "${KEY_DIARY_MODE_PREFIX}${persona.name}"
 
     companion object {
         const val DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -142,6 +153,7 @@ class Prefs(context: Context) {
         private const val KEY_GROQ_MODEL = "groq_model"
         private const val KEY_PERSONA = "persona"
         private const val KEY_CUSTOM_PROMPT = "custom_prompt"
+        private const val KEY_DIARY_MODE_PREFIX = "diary_mode_"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_COMMIT_DELAY = "commit_delay"
         private const val KEY_HANDWRITING_FONT = "handwriting_font"

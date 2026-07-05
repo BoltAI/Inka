@@ -29,6 +29,11 @@ class ConversationEngine(
         history.clear()
     }
 
+    fun replaceHistory(messages: List<AnthropicMessage>) {
+        history.clear()
+        history.addAll(messages.takeLast(maxTurns * 2))
+    }
+
     suspend fun sendMessage(settings: ConversationSettings, userText: String): AnthropicResult {
         if (settings.apiKey.isBlank()) {
             return AnthropicResult.Failure(BrainErrorKind.InvalidKey)

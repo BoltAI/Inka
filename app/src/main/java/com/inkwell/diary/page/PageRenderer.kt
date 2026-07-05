@@ -5,31 +5,49 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.text.Layout
+import android.text.StaticLayout
 import android.text.TextPaint
-import android.view.SurfaceView
+import com.inkwell.diary.data.InkElement
 import com.inkwell.diary.data.InkStroke
+import com.inkwell.diary.data.NotebookElement
+import com.inkwell.diary.data.NotebookPage
+import com.inkwell.diary.data.ReplyElement
 import com.inkwell.diary.data.drawInkStrokes
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlin.math.max
 
 class PageRenderer(
     private val context: Context,
     private val refresher: EinkRefresher = EinkRefresher(),
 ) {
-    private var surfaceView: SurfaceView? = null
+    private var pageView: PageCanvasView? = null
     private var bitmap: Bitmap? = null
     private var canvas: Canvas? = null
     private var lastReplyBitmap: Bitmap? = null
+    private var contentTopInsetPx: Int = 0
     private val tapSignals = Channel<Unit>(Channel.CONFLATED)
+    private val onyxInkReplayRenderer = OnyxInkReplayRenderer()
+    private val notebookPageCache = object : LinkedHashMap<PageCacheKey, Bitmap>(3, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<PageCacheKey, Bitmap>?): Boolean {
+            val shouldRemove = size > MAX_CACHED_NOTEBOOK_PAGES
+            if (shouldRemove) {
+                eldest?.value?.recycle()
+            }
+            return shouldRemove
+        }
+    }
 
     private val paperColor = Color.WHITE
     private val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = INK_COLOR
         style = Paint.Style.STROKE
-        strokeWidth = mm(1.0f)
+        strokeWidth = mm(REPLAY_STROKE_WIDTH_MM)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
@@ -53,11 +71,11 @@ class PageRenderer(
         get() = lastReplyBitmap != null
 
     fun attach(
-        surfaceView: SurfaceView,
-        width: Int = surfaceView.width,
-        height: Int = surfaceView.height,
+        pageView: PageCanvasView,
+        width: Int = pageView.width,
+        height: Int = pageView.height,
     ) {
-        this.surfaceView = surfaceView
+        this.pageView = pageView
         val recreated = ensureBitmap(width.coerceAtLeast(1), height.coerceAtLeast(1))
         if (recreated) {
             drawPaper()
@@ -68,10 +86,12 @@ class PageRenderer(
     fun detach() {
         bitmap?.recycle()
         lastReplyBitmap?.recycle()
+        notebookPageCache.values.forEach { it.recycle() }
+        notebookPageCache.clear()
         bitmap = null
         lastReplyBitmap = null
         canvas = null
-        surfaceView = null
+        pageView = null
     }
 
     fun signalTap() {
@@ -89,21 +109,29 @@ class PageRenderer(
         scriptPaint.isFakeBoldText = bold
         hintPaint.typeface = typeface
         hintPaint.isFakeBoldText = bold
+        notebookPageCache.values.forEach { it.recycle() }
+        notebookPageCache.clear()
+    }
+
+    fun setContentTopInset(px: Int) {
+        val coerced = px.coerceAtLeast(0)
+        if (contentTopInsetPx == coerced) return
+        contentTopInsetPx = coerced
+        notebookPageCache.values.forEach { it.recycle() }
+        notebookPageCache.clear()
     }
 
     fun clear() {
         drawPaper()
         lastReplyBitmap?.recycle()
         lastReplyBitmap = null
+        notebookPageCache.values.forEach { it.recycle() }
+        notebookPageCache.clear()
         render(full = true)
     }
 
     fun drawInitialHint() {
         drawPaper()
-        val text = "Write here."
-        val x = margin().toFloat()
-        val y = margin().toFloat() + hintPaint.textSize
-        canvas?.drawText(text, x, y, hintPaint)
         render(full = true)
     }
 
@@ -168,7 +196,7 @@ class PageRenderer(
 
     fun showHint(text: String = "I couldn't read that - try again?") {
         drawPaper()
-        val y = margin().toFloat() + scriptPaint.textSize
+        val y = contentTopInsetPx + margin().toFloat() + scriptPaint.textSize
         canvas?.drawText(text, margin().toFloat(), y, hintPaint)
         render(full = true)
     }
@@ -181,14 +209,49 @@ class PageRenderer(
         render(full = false, dirtyRect = dirtyRect?.toPaddedRect())
     }
 
-    fun showDiaryError(line: String, banner: String?) {
-        drawPaper()
-        val y = margin().toFloat() + scriptPaint.textSize
-        canvas?.drawText(line, margin().toFloat(), y, scriptPaint)
-        if (banner != null) {
-            canvas?.drawText(banner, margin().toFloat(), margin().toFloat() / 2f + bannerPaint.textSize, bannerPaint)
+    fun renderNotebookPage(
+        page: NotebookPage,
+        pageIndex: Int,
+        pageCount: Int,
+        showPageStatus: Boolean,
+        pageStatus: String? = null,
+        draftStrokes: List<InkStroke> = emptyList(),
+        draftReply: String = "",
+        fullRefresh: Boolean = true,
+        dirtyRect: RectF? = null,
+    ) {
+        val c = canvas ?: return
+        lastReplyBitmap?.recycle()
+        lastReplyBitmap = null
+        val cacheKey = PageCacheKey(page.index, page.hashCode())
+        val cachedPage = notebookPageCache[cacheKey]
+        if (cachedPage != null) {
+            drawPaper()
+            c.drawBitmap(cachedPage, 0f, 0f, bitmapPaint)
+        } else {
+            drawPaper()
+            // V2: this is the boundary for page bitmap snapshots once recognition can use vision context.
+            drawNotebookElements(c, page.elements)
+            notebookPageCache[cacheKey]?.recycle()
+            notebookPageCache[cacheKey] = bitmap?.copy(Bitmap.Config.ARGB_8888, false) ?: return
         }
-        render(full = true)
+        if (draftReply.isNotBlank()) {
+            val top = nextReplyTop(page.elements)
+            drawNotebookReply(c, draftReply, top)
+        }
+        resetInkPaint()
+        drawNotebookInkStrokes(c, draftStrokes)
+        if (showPageStatus && pageCount > 1) {
+            drawPageStatus(pageIndex, pageCount, pageStatus.orEmpty())
+        }
+        render(full = fullRefresh, dirtyRect = dirtyRect?.toPaddedRect())
+    }
+
+    fun notebookReplyFits(page: NotebookPage, replyText: String): Boolean {
+        if (replyText.isBlank()) return true
+        val top = nextReplyTop(page.elements)
+        val layout = textLayout(replyText)
+        return top + layout.height <= notebookContentBottom()
     }
 
     private fun ensureBitmap(width: Int, height: Int): Boolean {
@@ -201,42 +264,111 @@ class PageRenderer(
     }
 
     private fun drawPaper() {
-        canvas?.drawColor(paperColor)
+        canvas?.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+    }
+
+    private fun drawNotebookElements(c: Canvas, elements: List<NotebookElement>) {
+        elements.forEach { element ->
+            when (element) {
+                is InkElement -> {
+                    resetInkPaint()
+                    drawNotebookInkStrokes(c, element.strokes)
+                }
+                is ReplyElement -> {
+                    drawNotebookReply(c, element.text, nextReplyTop(elements.takeWhile { it !== element }))
+                }
+            }
+        }
+    }
+
+    private fun nextReplyTop(elements: List<NotebookElement>): Float {
+        var cursor = contentTopInsetPx + margin().toFloat() + dp(MANUSCRIPT_TOP_EXTRA_DP)
+        elements.forEach { element ->
+            when (element) {
+                is InkElement -> {
+                    val bottom = strokesBounds(element.strokes)?.bottom ?: cursor
+                    cursor = max(cursor, bottom + dp(REPLY_AFTER_INK_GAP_DP))
+                }
+                is ReplyElement -> {
+                    val layout = textLayout(element.text)
+                    cursor += layout.height + dp(REPLY_AFTER_REPLY_GAP_DP)
+                }
+            }
+        }
+        return cursor.coerceAtMost(notebookContentBottom().toFloat())
+    }
+
+    private fun drawNotebookReply(c: Canvas, text: String, top: Float): Boolean {
+        if (text.isBlank()) return false
+        val previousColor = scriptPaint.color
+        scriptPaint.color = Color.BLACK
+        val layout = textLayout(text)
+        c.save()
+        c.translate(margin().toFloat(), top)
+        layout.draw(c)
+        c.restore()
+        scriptPaint.color = previousColor
+        return top + layout.height > notebookContentBottom()
+    }
+
+    private fun drawNotebookInkStrokes(c: Canvas, strokes: List<InkStroke>) {
+        if (strokes.isEmpty()) return
+        if (!onyxInkReplayRenderer.draw(c, strokes, inkPaint)) {
+            drawInkStrokes(c, strokes, inkPaint)
+        }
+    }
+
+    private fun textLayout(text: String): StaticLayout {
+        val b = bitmap
+        val contentWidth = ((b?.width ?: 1200) - margin() * 2).coerceAtLeast(1)
+        return StaticLayout.Builder.obtain(text, 0, text.length, scriptPaint, contentWidth)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(0f, ReplyLayout.LINE_SPACING_MULTIPLIER)
+            .setIncludePad(false)
+            .build()
+    }
+
+    private fun strokesBounds(strokes: List<InkStroke>): RectF? {
+        var bounds: RectF? = null
+        strokes.forEach { stroke ->
+            stroke.points.forEach { point ->
+                if (bounds == null) {
+                    bounds = RectF(point.x, point.y, point.x, point.y)
+                } else {
+                    bounds?.union(point.x, point.y)
+                }
+            }
+        }
+        return bounds
+    }
+
+    private fun notebookContentBottom(): Int {
+        val b = bitmap
+        return ((b?.height ?: 1600) - margin() - dp(MANUSCRIPT_BOTTOM_RESERVED_DP)).coerceAtLeast(margin())
+    }
+
+    private fun drawPageStatus(pageIndex: Int, pageCount: Int, status: String) {
+        val b = bitmap ?: return
+        val text = "${pageIndex + 1} / ${pageCount.coerceAtLeast(1)}"
+        val x = b.width / 2f - bannerPaint.measureText(text) / 2f
+        canvas?.drawText(text, x, b.height - margin().toFloat() / 2f, bannerPaint)
+        if (status.isNotBlank()) {
+            canvas?.drawText(status, margin().toFloat(), b.height - margin().toFloat() / 2f, bannerPaint)
+        }
     }
 
     private fun render(full: Boolean, dirtyRect: Rect? = null) {
-        val view = surfaceView ?: return
+        val view = pageView ?: return
         val b = bitmap ?: return
+        val boundedDirty = dirtyRect?.boundedTo(b.width, b.height)
         val draw = {
-            drawBitmapToSurface(view, b, dirtyRect)
+            view.present(b, boundedDirty)
         }
         if (full) {
             draw()
             refresher.requestDeepRefresh(view)
         } else {
             refresher.withFastRefresh(view) { draw() }
-        }
-    }
-
-    private fun drawBitmapToSurface(view: SurfaceView, bitmap: Bitmap, dirtyRect: Rect?) {
-        val holder = view.holder
-        if (!holder.surface.isValid) return
-
-        val boundedDirty = dirtyRect?.boundedTo(bitmap.width, bitmap.height)
-        val screenCanvas = if (boundedDirty != null) {
-            holder.lockCanvas(boundedDirty)
-        } else {
-            holder.lockCanvas()
-        } ?: return
-
-        try {
-            if (boundedDirty != null) {
-                screenCanvas.clipRect(boundedDirty)
-            }
-            screenCanvas.drawColor(paperColor)
-            screenCanvas.drawBitmap(bitmap, 0f, 0f, bitmapPaint)
-        } finally {
-            holder.unlockCanvasAndPost(screenCanvas)
         }
     }
 
@@ -263,7 +395,7 @@ class PageRenderer(
     private fun margin(): Int = ((bitmap?.width ?: 1200) * 0.055f).toInt().coerceIn(36, 96)
 
     private fun replyTop(): Int {
-        return margin() + dp(REPLY_TOP_EXTRA_DP)
+        return contentTopInsetPx + margin() + dp(REPLY_TOP_EXTRA_DP)
     }
 
     private fun sp(value: Float): Float = value * context.resources.displayMetrics.scaledDensity
@@ -283,9 +415,20 @@ class PageRenderer(
 
     companion object {
         private const val MILLIMETERS_PER_INCH = 25.4f
+        private const val REPLAY_STROKE_WIDTH_MM = 1.0f
+        private const val MAX_CACHED_NOTEBOOK_PAGES = 3
         private const val DEFAULT_REPLY_TEXT_SIZE_SP = 38f
         private const val REPLY_TOP_EXTRA_DP = 24
+        private const val MANUSCRIPT_TOP_EXTRA_DP = 20
+        private const val MANUSCRIPT_BOTTOM_RESERVED_DP = 44
+        private const val REPLY_AFTER_INK_GAP_DP = 22
+        private const val REPLY_AFTER_REPLY_GAP_DP = 26
         private const val INK_COLOR = -0x1000000
         private const val STROKE_FADE_STEP_MS = 125L
     }
 }
+
+private data class PageCacheKey(
+    val pageIndex: Int,
+    val pageHash: Int,
+)

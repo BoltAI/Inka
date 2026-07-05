@@ -117,4 +117,18 @@ class PrefsTest {
 
         assertEquals(Persona.Socrates, Prefs(app).persona)
     }
+
+    @Test
+    fun `diary mode defaults are per persona and persist overrides`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertEquals(DiaryMode.Fade, prefs.diaryModeFor(Persona.Whisper))
+        assertEquals(DiaryMode.Manuscript, prefs.diaryModeFor(Persona.Confidant))
+        assertEquals(DiaryMode.Manuscript, prefs.diaryModeFor(Persona.Custom))
+
+        prefs.setDiaryMode(Persona.Whisper, DiaryMode.Manuscript)
+
+        assertEquals(DiaryMode.Manuscript, Prefs(RuntimeEnvironment.getApplication()).diaryModeFor(Persona.Whisper))
+        assertEquals(DiaryMode.Manuscript, Prefs(RuntimeEnvironment.getApplication()).diaryModeFor(Persona.Confidant))
+    }
 }

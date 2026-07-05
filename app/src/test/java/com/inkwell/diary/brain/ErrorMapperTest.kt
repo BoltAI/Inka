@@ -7,7 +7,7 @@ import org.junit.Test
 
 class ErrorMapperTest {
     @Test
-    fun `maps invalid key to plain line plus actionable banner`() {
+    fun `maps invalid key to alert copy plus actionable title`() {
         val error = ErrorMapper.from(BrainErrorKind.InvalidKey)
 
         assertEquals("The selected provider key did not work.", error.diegeticLine)
@@ -15,7 +15,7 @@ class ErrorMapperTest {
     }
 
     @Test
-    fun `maps network to plain offline line without settings banner`() {
+    fun `maps network to alert copy without settings title`() {
         val error = ErrorMapper.from(BrainErrorKind.Network)
 
         assertEquals("No internet connection. Connect to Wi-Fi and try again.", error.diegeticLine)

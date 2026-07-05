@@ -18,6 +18,7 @@ import kotlin.math.max
 
 class ReplyOverlayView(context: Context) : View(context) {
     private var replyText: String = ""
+    private var contentTopInsetPx: Int = 0
 
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
@@ -76,6 +77,13 @@ class ReplyOverlayView(context: Context) : View(context) {
         invalidateReplyArea()
     }
 
+    fun setContentTopInset(px: Int) {
+        val coerced = px.coerceAtLeast(0)
+        if (contentTopInsetPx == coerced) return
+        contentTopInsetPx = coerced
+        invalidateReplyArea()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (replyText.isBlank() || width <= 0 || height <= 0) return
@@ -99,7 +107,7 @@ class ReplyOverlayView(context: Context) : View(context) {
 
     private fun margin(): Int = (width * 0.055f).toInt().coerceIn(dp(36), dp(96))
 
-    private fun replyTop(): Int = margin() + dp(REPLY_TOP_EXTRA_DP)
+    private fun replyTop(): Int = contentTopInsetPx + margin() + dp(REPLY_TOP_EXTRA_DP)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 

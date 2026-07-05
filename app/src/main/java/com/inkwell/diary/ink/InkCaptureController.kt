@@ -28,10 +28,12 @@ class InkCaptureController(
     private val callbacks: Callbacks,
 ) {
     interface Callbacks {
-        fun onPenDown()
+        fun onPenDown(): Boolean
         fun onPenUp()
         fun onCommitRequested()
-        fun onFingerTap()
+        fun onFingerTap(x: Float, y: Float)
+        fun onFingerSwipeLeft()
+        fun onFingerSwipeRight()
         fun onStrokeCaptured(strokes: List<InkStroke>, dirtyRect: RectF?)
     }
 
@@ -41,7 +43,7 @@ class InkCaptureController(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                callbacks.onFingerTap()
+                callbacks.onFingerTap(e.x, e.y)
                 return true
             }
 
@@ -50,18 +52,45 @@ class InkCaptureController(
                 callbacks.onCommitRequested()
                 return true
             }
+
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float,
+            ): Boolean {
+                val start = e1 ?: return false
+                val dx = e2.x - start.x
+                val dy = e2.y - start.y
+                if (kotlin.math.abs(dx) < SWIPE_DISTANCE_PX || kotlin.math.abs(dx) < kotlin.math.abs(dy) * 1.4f) {
+                    return false
+                }
+                if (dx < 0) {
+                    callbacks.onFingerSwipeLeft()
+                } else {
+                    callbacks.onFingerSwipeRight()
+                }
+                return true
+            }
         },
     )
 
     private var touchHelper: TouchHelper? = null
     private var rawDrawingActive = false
     private var inputEnabled = true
+    private var rawStrokeAccepted = false
+    private var fallbackStrokeAccepted = false
 
     private val rawCallback = object : RawInputCallback() {
         override fun onBeginRawDrawing(b: Boolean, touchPoint: TouchPoint) {
             if (!inputEnabled) return
             disableFingerTouchDuringStroke()
-            callbacks.onPenDown()
+            rawStrokeAccepted = callbacks.onPenDown()
+            if (!rawStrokeAccepted) {
+                clearRejectedRawStroke()
+                enableFingerTouchAfterStroke()
+                return
+            }
             strokeStore.beginStroke(touchPoint.toInkPoint())
             commitTimer.onPenDown()
             Log.d(TAG, "raw pen begin")
@@ -69,7 +98,7 @@ class InkCaptureController(
 
         override fun onEndRawDrawing(b: Boolean, touchPoint: TouchPoint) {
             try {
-                if (!inputEnabled) return
+                if (!inputEnabled || !rawStrokeAccepted) return
                 strokeStore.addPoint(touchPoint.toInkPoint())
                 strokeStore.finishCurrent()
                 callbacks.onPenUp()
@@ -77,18 +106,19 @@ class InkCaptureController(
                 Log.d(TAG, "raw pen end")
                 publishCapturedInk(dirtyRect = null)
             } finally {
+                rawStrokeAccepted = false
                 enableFingerTouchAfterStroke()
             }
         }
 
         override fun onRawDrawingTouchPointMoveReceived(touchPoint: TouchPoint) {
-            if (!inputEnabled) return
+            if (!inputEnabled || !rawStrokeAccepted) return
             strokeStore.addPoint(touchPoint.toInkPoint())
             commitTimer.onStrokeMove()
         }
 
         override fun onRawDrawingTouchPointListReceived(touchPointList: TouchPointList) {
-            if (!inputEnabled) return
+            if (!inputEnabled || !rawStrokeAccepted) return
             strokeStore.replaceCurrentStroke(touchPointList.points.map { it.toInkPoint() })
             commitTimer.onStrokeMove()
             Log.d(TAG, "raw pen point list size=${touchPointList.points.size}")
@@ -100,7 +130,7 @@ class InkCaptureController(
         override fun onRawErasingTouchPointListReceived(touchPointList: TouchPointList) = Unit
 
         override fun onPenUpRefresh(refreshRect: RectF) {
-            if (!inputEnabled) return
+            if (!inputEnabled || !rawStrokeAccepted) return
             Log.d(TAG, "raw pen refresh rect=$refreshRect")
             publishCapturedInk(refreshRect)
         }
@@ -122,6 +152,8 @@ class InkCaptureController(
             false
         }
     }
+
+    fun isRawDrawingActive(): Boolean = rawDrawingActive
 
     fun refreshLimits(resetRawSession: Boolean = false) {
         runCatching {
@@ -156,6 +188,19 @@ class InkCaptureController(
                 touchHelper?.setRawDrawingRenderEnabled(false)
                 touchHelper?.setRawDrawingEnabled(false)
             }
+        }
+        if (!enabled) {
+            enableFingerTouchAfterStroke()
+        }
+    }
+
+    fun setReadOnlyInputEnabled(enabled: Boolean) {
+        inputEnabled = enabled
+        rawStrokeAccepted = false
+        fallbackStrokeAccepted = false
+        runCatching {
+            touchHelper?.setRawDrawingRenderEnabled(false)
+            touchHelper?.setRawDrawingEnabled(enabled)
         }
         if (!enabled) {
             enableFingerTouchAfterStroke()
@@ -215,14 +260,17 @@ class InkCaptureController(
             y = event.y,
             pressure = event.pressure,
             timestampMs = event.eventTime,
+            size = event.size,
         )
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                callbacks.onPenDown()
+                fallbackStrokeAccepted = callbacks.onPenDown()
+                if (!fallbackStrokeAccepted) return
                 strokeStore.beginStroke(point)
                 commitTimer.onPenDown()
             }
             MotionEvent.ACTION_MOVE -> {
+                if (!fallbackStrokeAccepted) return
                 for (i in 0 until event.historySize) {
                     strokeStore.addPoint(
                         InkPoint(
@@ -230,6 +278,7 @@ class InkCaptureController(
                             y = event.getHistoricalY(i),
                             pressure = event.getHistoricalPressure(i),
                             timestampMs = event.getHistoricalEventTime(i),
+                            size = event.getHistoricalSize(i),
                         ),
                     )
                 }
@@ -238,11 +287,13 @@ class InkCaptureController(
                 publishCapturedInk(dirtyRect = null)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!fallbackStrokeAccepted) return
                 strokeStore.addPoint(point)
                 strokeStore.finishCurrent()
                 callbacks.onPenUp()
                 commitTimer.onPenUp()
                 publishCapturedInk(dirtyRect = null)
+                fallbackStrokeAccepted = false
             }
         }
     }
@@ -289,6 +340,15 @@ class InkCaptureController(
         }
     }
 
+    private fun clearRejectedRawStroke() {
+        runCatching {
+            touchHelper?.setRawDrawingRenderEnabled(false)
+            touchHelper?.restartRawDrawing()
+            touchHelper?.setLimitRect(pageRectProvider(), excludeRectsProvider())
+            touchHelper?.setRawDrawingEnabled(inputEnabled)
+        }
+    }
+
     private fun strokeWidthPx(): Float {
         return appContext.resources.displayMetrics.xdpi / MILLIMETERS_PER_INCH * STROKE_WIDTH_MM
     }
@@ -297,32 +357,18 @@ class InkCaptureController(
         return InkPoint(
             x = getX(),
             y = getY(),
-            pressure = reflectFloat("getPressure") ?: reflectFloat("pressure") ?: 1f,
-            timestampMs = reflectLong("getTimestamp")
-                ?: reflectLong("getTime")
-                ?: SystemClock.uptimeMillis(),
+            pressure = getPressure(),
+            timestampMs = getTimestamp().takeIf { it > 0L } ?: SystemClock.uptimeMillis(),
+            size = getSize(),
+            tiltX = getTiltX(),
+            tiltY = getTiltY(),
         )
-    }
-
-    private fun TouchPoint.reflectFloat(methodName: String): Float? {
-        return runCatching {
-            javaClass.getMethod(methodName).invoke(this) as? Float
-        }.getOrNull()
-    }
-
-    private fun TouchPoint.reflectLong(methodName: String): Long? {
-        return runCatching {
-            when (val value = javaClass.getMethod(methodName).invoke(this)) {
-                is Long -> value
-                is Int -> value.toLong()
-                else -> null
-            }
-        }.getOrNull()
     }
 
     companion object {
         private const val TAG = "InkCaptureController"
         private const val MILLIMETERS_PER_INCH = 25.4f
         private const val STROKE_WIDTH_MM = 1.0f
+        private const val SWIPE_DISTANCE_PX = 90f
     }
 }

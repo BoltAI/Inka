@@ -25,6 +25,7 @@ import com.inkwell.diary.R
 import com.inkwell.diary.brain.AnthropicResult
 import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.data.AiProvider
+import com.inkwell.diary.data.DiaryMode
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.page.HandwritingFont
@@ -46,6 +47,7 @@ class SettingsPanel(
         fun onClearConversation()
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
+        fun onNotebookSettingsChanged()
     }
 
     private enum class SettingsScreen(val title: String) {
@@ -326,6 +328,7 @@ class SettingsPanel(
         val customGroup = groupedList().apply {
             visibility = if (prefs.persona == Persona.Custom) View.VISIBLE else View.GONE
         }
+        var modeRow: ChoiceRowHandle? = null
 
         fun renderSelection() {
             val selected = prefs.persona
@@ -335,11 +338,13 @@ class SettingsPanel(
             val customVisibility = if (selected == Persona.Custom) View.VISIBLE else View.GONE
             customGap.visibility = customVisibility
             customGroup.visibility = customVisibility
+            modeRow?.valueText?.text = prefs.diaryModeFor(selected).label
         }
 
         fun selectPersona(persona: Persona) {
             prefs.persona = persona
             renderSelection()
+            callbacks.onNotebookSettingsChanged()
             status.text = if (persona == Persona.Custom && prefs.customPrompt.isBlank()) {
                 "Custom persona selected. Add a custom prompt below."
             } else {
@@ -375,12 +380,31 @@ class SettingsPanel(
                 prefs.persona = Persona.Custom
                 renderSelection()
                 customPromptRow.valueText.text = customPromptStatus()
+                callbacks.onNotebookSettingsChanged()
                 status.text = "Custom prompt saved."
             }
         }
 
         panel.addGap(16)
         panel.addView(status, fullWidth())
+        panel.addGap(18)
+        val modeGroup = groupedList()
+        panel.addView(modeGroup, fullWidth())
+        modeRow = addChoiceRow(modeGroup, "Writing Mode", prefs.diaryModeFor(prefs.persona).label) {
+            val modes = DiaryMode.entries.toList()
+            val current = prefs.diaryModeFor(prefs.persona)
+            showChoiceDialog(
+                title = "Writing Mode",
+                choices = modes.map { it.label },
+                selectedIndex = modes.indexOf(current).coerceAtLeast(0),
+            ) { index ->
+                val mode = modes.getOrElse(index) { DiaryMode.defaultFor(prefs.persona) }
+                prefs.setDiaryMode(prefs.persona, mode)
+                modeRow?.valueText?.text = mode.label
+                callbacks.onNotebookSettingsChanged()
+                status.text = "Writing mode saved: ${mode.label}."
+            }
+        }
         panel.addGap(36)
         return panel.parent as ScrollView
     }
@@ -520,14 +544,23 @@ class SettingsPanel(
         val status = TextView(context).paperText(16f)
         val group = groupedList()
         panel.addView(group, fullWidth())
+        val manuscript = prefs.diaryModeFor(prefs.persona) == DiaryMode.Manuscript
+        val rowLabel = if (manuscript) "Burn this notebook" else "Clear Conversation"
+        val rowValue = if (manuscript) "Burn" else "Clear"
+        val dialogTitle = rowLabel
+        val dialogMessage = if (manuscript) {
+            "Delete the saved manuscript pages for ${prefs.persona.label}?"
+        } else {
+            "Remove the local conversation history used for AI context?"
+        }
 
-        addChoiceRow(group, "Clear Conversation", "Clear") {
+        addChoiceRow(group, rowLabel, rowValue) {
             AlertDialog.Builder(context)
-                .setTitle("Clear Conversation")
-                .setMessage("Remove the local conversation history used for AI context?")
-                .setPositiveButton("Clear") { _, _ ->
+                .setTitle(dialogTitle)
+                .setMessage(dialogMessage)
+                .setPositiveButton(rowValue) { _, _ ->
                     callbacks.onClearConversation()
-                    status.text = "Conversation cleared."
+                    status.text = if (manuscript) "Notebook burned." else "Conversation cleared."
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -576,7 +609,7 @@ class SettingsPanel(
         addChoiceRow(group, "Fonts", "Licenses") {
             showFontLicensesDialog()
         }
-        addValueRow(group, "Privacy", "No analytics or accounts")
+        addValueRow(group, "Privacy", "Local only")
         panel.addGap(36)
         return panel.parent as ScrollView
     }
@@ -941,17 +974,12 @@ class SettingsPanel(
     }
 
     private fun showFontLicensesDialog() {
+        val licenseSummary = handwritingFonts.joinToString("\n\n") { font ->
+            "${font.label}\n${font.licenseName}\n${font.licensePath}"
+        }
         AlertDialog.Builder(context)
             .setTitle("Font Licenses")
-            .setMessage(
-                listOf(
-                    "Caveat: SIL Open Font License 1.1",
-                    "Homemade Apple: Apache License 2.0",
-                    "Ms Madi: SIL Open Font License 1.1",
-                    "",
-                    "Full license text is included in the project licenses folder.",
-                ).joinToString("\n"),
-            )
+            .setMessage(licenseSummary)
             .setPositiveButton("OK", null)
             .show()
     }

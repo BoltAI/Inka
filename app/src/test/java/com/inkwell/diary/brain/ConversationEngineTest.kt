@@ -65,6 +65,18 @@ class ConversationEngineTest {
     }
 
     @Test
+    fun `replace history caps to configured turn count`() {
+        val engine = ConversationEngine(FakeTransport(), maxTurns = 2)
+        val messages = (0 until 8).map { index ->
+            AnthropicMessage(role = if (index % 2 == 0) "user" else "assistant", content = "message $index")
+        }
+
+        engine.replaceHistory(messages)
+
+        assertEquals(listOf("message 4", "message 5", "message 6", "message 7"), engine.historySnapshot().map { it.content })
+    }
+
+    @Test
     fun `routes requests to selected provider transport`() = runTest {
         val anthropic = FakeTransport()
         val groq = FakeTransport()
