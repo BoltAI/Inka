@@ -67,6 +67,7 @@ import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.page.PageCanvasView
 import com.inkwell.diary.page.PageRenderer
 import com.inkwell.diary.page.ReplyOverlayView
+import com.inkwell.diary.page.SvgFidelityLabStore
 import com.inkwell.diary.page.SvgPathAdapter
 import com.inkwell.diary.page.dissolveConfig
 import com.inkwell.diary.recognize.MlKitRecognitionService
@@ -453,16 +454,12 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     override fun onFingerSwipeLeft() {
         if (historyOpen) {
             turnHistoryPage(1)
-        } else if (prefs.replyStyle == ReplyStyle.Drawing) {
-            startFreshDrawingCanvas()
         }
     }
 
     override fun onFingerSwipeRight() {
         if (historyOpen) {
             turnHistoryPage(-1)
-        } else {
-            openHistory()
         }
     }
 
@@ -555,13 +552,13 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             showMissingApiKeyWarning(provider.label)
             return
         }
-        if (provider != AiProvider.Anthropic) {
+        if (provider == AiProvider.Groq) {
             showCommittedDrawingCanvas(canvasId, strokes)
-            finishDrawingCommit("Anthropic required")
-            addDebug("drawing mode requires Anthropic, current=${provider.label}")
+            finishDrawingCommit("Unsupported provider")
+            addDebug("drawing mode unsupported provider: ${provider.label}")
             showWarningDialog(
-                title = "Anthropic required",
-                message = "Drawing mode uses Anthropic vision tool calls. Switch Provider to Anthropic in Settings > AI Settings.",
+                title = "Unsupported provider",
+                message = "Drawing mode currently supports Anthropic and OpenAI. Switch Provider in Settings > AI Settings.",
             )
             return
         }
@@ -579,11 +576,12 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             model = prefs.model,
             systemPrompt = systemPrompt,
             provider = provider,
+            reasoningEffort = prefs.reasoningEffort,
         )
         showCommittedDrawingCanvas(canvasId, strokes, fullRefresh = false)
         renderer.beginSketchReply()
         val aiStartedAt = SystemClock.elapsedRealtime()
-        addDebug("draw stream start: ${provider.label} ${prefs.model}")
+        addDebug("draw stream start: ${provider.label} ${prefs.model}, effort=${prefs.reasoningEffort.label}")
         var firstToolDeltaAt: Long? = null
         var firstPathParsedAt: Long? = null
         var firstStrokeRenderedAt: Long? = null
@@ -673,6 +671,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
                 addDebug(
                     "draw stream complete: paths=${result.paths.size}, valid=${replyStrokes.size}, rejected=${converted.rejectedPaths}, truncated=${converted.truncated}, total=${SystemClock.elapsedRealtime() - aiStartedAt}ms",
                 )
+                if (BuildConfig.DEBUG) {
+                    SvgFidelityLabStore.save(this, result.paths, snapshot.width, snapshot.height)
+                }
                 val savedAt = System.currentTimeMillis()
                 persistedNotebook = saveDrawingReply(
                     notebook = persistedNotebook,
@@ -813,7 +814,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         }
 
         setStatus("Sending")
-        addDebug("sending to ${provider.label} ${prefs.model}, chars=${recognized.length}")
+        addDebug("sending to ${provider.label} ${prefs.model}, effort=${prefs.reasoningEffort.label}, chars=${recognized.length}")
         val aiStartedAt = SystemClock.elapsedRealtime()
         var firstReplyDeltaAt: Long? = null
         var replyStarted = false
@@ -830,6 +831,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             model = prefs.model,
             systemPrompt = systemPrompt,
             provider = provider,
+            reasoningEffort = prefs.reasoningEffort,
         )
         val result = engine.streamMessage(settings, recognized) { delta ->
             if (delta.isEmpty()) return@streamMessage

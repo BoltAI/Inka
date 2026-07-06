@@ -21,6 +21,11 @@
             android:enabled="${dissolveLabEnabled}"
             android:exported="false" />
         <activity
+            android:name=".ui.SvgFidelityLabActivity"
+            android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:enabled="${dissolveLabEnabled}"
+            android:exported="false" />
+        <activity
             android:name=".ui.MainActivity"
             android:configChanges="keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize"
             android:exported="true">

@@ -3,8 +3,8 @@ package com.inkwell.diary.data
 enum class ReplyStyle(
     val label: String,
 ) {
-    Writing("Writing"),
-    Drawing("Drawing"),
+    Writing("Text only"),
+    Drawing("Draw"),
     ;
 
     companion object {

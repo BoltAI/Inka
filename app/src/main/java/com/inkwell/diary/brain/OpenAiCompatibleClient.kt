@@ -6,8 +6,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -55,6 +57,21 @@ class OkHttpOpenAiCompatibleTransport(
         onTextDelta: suspend (String) -> Unit,
     ): AnthropicResult = withContext(Dispatchers.IO) {
         executeStreamOnce(apiKey, requestBody.copy(stream = true), onTextDelta)
+    }
+
+    override suspend fun draw(
+        apiKey: String,
+        requestBody: JsonObject,
+    ): AnthropicToolResult = withContext(Dispatchers.IO) {
+        executeToolOnce(apiKey, requestBody)
+    }
+
+    override suspend fun streamDraw(
+        apiKey: String,
+        requestBody: JsonObject,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult = withContext(Dispatchers.IO) {
+        executeToolStreamOnce(apiKey, requestBody.withStream(), onToolJsonDelta)
     }
 
     private fun executeOnce(apiKey: String, requestBody: AnthropicRequestBody): AnthropicResult {
@@ -128,11 +145,111 @@ class OkHttpOpenAiCompatibleTransport(
         }
     }
 
+    private fun executeToolOnce(apiKey: String, requestBody: JsonObject): AnthropicToolResult {
+        val request = buildRawRequest(apiKey, requestBody)
+        return try {
+            client.newCall(request).execute().use { response ->
+                val responseText = response.body?.string().orEmpty()
+                when {
+                    response.isSuccessful -> {
+                        val decoded = json.decodeFromString(
+                            ChatCompletionResponse.serializer(),
+                            responseText,
+                        )
+                        val toolCall = decoded.choices
+                            .firstOrNull()
+                            ?.message
+                            ?.toolCalls
+                            ?.preferredDrawToolCall()
+                            ?: return@use AnthropicToolResult.Failure(BrainErrorKind.BadRequest, "Expected draw tool, got no tool call")
+                        val input = toolCall.function?.arguments?.parseToolInput()
+                            ?: return@use AnthropicToolResult.Failure(BrainErrorKind.BadRequest, "Invalid draw tool arguments")
+                        AnthropicToolResult.Success(input)
+                    }
+                    else -> response.toFailure(responseText).toToolFailure()
+                }
+            }
+        } catch (e: InterruptedIOException) {
+            AnthropicToolResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: IOException) {
+            AnthropicToolResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: Exception) {
+            AnthropicToolResult.Failure(BrainErrorKind.Unknown, e::class.java.simpleName)
+        }
+    }
+
+    private suspend fun executeToolStreamOnce(
+        apiKey: String,
+        requestBody: JsonObject,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult {
+        val request = buildRawRequest(apiKey, requestBody)
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@use response.toFailure(response.body?.string().orEmpty()).toToolStreamFailure()
+                }
+
+                val source = response.body?.source()
+                    ?: return@use AnthropicToolStreamResult.Failure(BrainErrorKind.BadRequest, "Empty tool stream")
+                val toolArguments = linkedMapOf<Int, StringBuilder>()
+                val toolNames = mutableMapOf<Int, String>()
+                val data = StringBuilder()
+
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    if (line.isEmpty()) {
+                        val failure = consumeToolStreamData(data.toString(), toolArguments, toolNames, onToolJsonDelta)
+                        data.setLength(0)
+                        if (failure != null) return@use failure
+                    } else if (line.startsWith("data:")) {
+                        if (data.isNotEmpty()) data.append('\n')
+                        data.append(line.removePrefix("data:").trimStart())
+                    }
+                }
+
+                val failure = consumeToolStreamData(data.toString(), toolArguments, toolNames, onToolJsonDelta)
+                if (failure != null) {
+                    failure
+                } else {
+                    val drawIndex = toolNames.entries.firstOrNull { it.value == DRAW_TOOL_NAME }?.key
+                        ?: toolArguments.keys.firstOrNull()
+                    val input = drawIndex
+                        ?.let { toolArguments[it]?.toString() }
+                        ?.parseToolInput()
+                    if (input == null) {
+                        AnthropicToolStreamResult.Failure(BrainErrorKind.BadRequest, "Invalid streamed draw tool arguments")
+                    } else {
+                        AnthropicToolStreamResult.Success(input)
+                    }
+                }
+            }
+        } catch (e: InterruptedIOException) {
+            AnthropicToolStreamResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: IOException) {
+            AnthropicToolStreamResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: Exception) {
+            AnthropicToolStreamResult.Failure(BrainErrorKind.Unknown, e::class.java.simpleName)
+        }
+    }
+
     private fun buildRequest(apiKey: String, requestBody: AnthropicRequestBody): Request {
         val body = json.encodeToString(
             ChatCompletionRequest.serializer(),
             requestBody.toChatCompletionRequest(),
         ).toRequestBody(JSON_MEDIA_TYPE)
+
+        return Request.Builder()
+            .url(baseUrl)
+            .header("Authorization", "Bearer $apiKey")
+            .header("content-type", "application/json")
+            .post(body)
+            .build()
+    }
+
+    private fun buildRawRequest(apiKey: String, requestBody: JsonObject): Request {
+        val body = json.encodeToString(JsonObject.serializer(), requestBody)
+            .toRequestBody(JSON_MEDIA_TYPE)
 
         return Request.Builder()
             .url(baseUrl)
@@ -165,6 +282,41 @@ class OkHttpOpenAiCompatibleTransport(
         return null
     }
 
+    private suspend fun consumeToolStreamData(
+        data: String,
+        toolArguments: MutableMap<Int, StringBuilder>,
+        toolNames: MutableMap<Int, String>,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult.Failure? {
+        val clean = data.trim()
+        if (clean.isBlank() || clean == "[DONE]") return null
+        val payload = runCatching { json.parseToJsonElement(clean) as? JsonObject }.getOrNull() ?: return null
+        payload["error"]?.let {
+            return payload.toChatFailure().toToolStreamFailure()
+        }
+
+        val chunk = runCatching {
+            json.decodeFromString(ChatCompletionChunk.serializer(), clean)
+        }.getOrNull() ?: return null
+
+        chunk.choices.forEach { choice ->
+            choice.delta.toolCalls.forEach { toolCall ->
+                val index = toolCall.index
+                val function = toolCall.function
+                val name = function?.name.orEmpty()
+                if (name.isNotBlank()) {
+                    toolNames[index] = name
+                }
+                val arguments = function?.arguments.orEmpty()
+                if (arguments.isNotEmpty()) {
+                    toolArguments.getOrPut(index) { StringBuilder() }.append(arguments)
+                    onToolJsonDelta(arguments)
+                }
+            }
+        }
+        return null
+    }
+
     private fun AnthropicRequestBody.toChatCompletionRequest(): ChatCompletionRequest {
         val chatMessages = buildList {
             if (system.isNotBlank()) {
@@ -178,6 +330,7 @@ class OkHttpOpenAiCompatibleTransport(
             model = model,
             messages = chatMessages,
             maxCompletionTokens = maxTokens,
+            reasoningEffort = openAiReasoningEffort,
             stream = stream,
         )
     }
@@ -198,6 +351,14 @@ class OkHttpOpenAiCompatibleTransport(
             kind = kind,
             detail = listOfNotNull(type, code, message).joinToString(": ").ifBlank { null },
         )
+    }
+
+    private fun AnthropicResult.Failure.toToolFailure(): AnthropicToolResult.Failure {
+        return AnthropicToolResult.Failure(kind, detail)
+    }
+
+    private fun AnthropicResult.Failure.toToolStreamFailure(): AnthropicToolStreamResult.Failure {
+        return AnthropicToolStreamResult.Failure(kind, detail)
     }
 
     private fun Response.toFailure(responseText: String): AnthropicResult.Failure {
@@ -240,8 +401,22 @@ class OkHttpOpenAiCompatibleTransport(
 
     private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
 
+    private fun List<ChatCompletionToolCall>.preferredDrawToolCall(): ChatCompletionToolCall? {
+        return firstOrNull { it.function?.name == DRAW_TOOL_NAME } ?: firstOrNull()
+    }
+
+    private fun String.parseToolInput(): JsonObject? {
+        return runCatching { json.parseToJsonElement(this) as? JsonObject }.getOrNull()
+    }
+
+    private fun JsonObject.withStream(): JsonObject = buildJsonObject {
+        this@withStream.forEach { (key, value) -> put(key, value) }
+        put("stream", true)
+    }
+
     companion object {
         private const val BLANK_REPLY = "I heard you, but the ink came back blank."
+        private const val DRAW_TOOL_NAME = "draw"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
@@ -251,6 +426,7 @@ private data class ChatCompletionRequest(
     val model: String,
     val messages: List<ChatMessage>,
     @SerialName("max_completion_tokens") val maxCompletionTokens: Int,
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null,
     val stream: Boolean = false,
 )
 
@@ -272,7 +448,20 @@ private data class ChatCompletionChoice(
 
 @Serializable
 private data class ChatCompletionMessage(
-    val content: String = "",
+    val content: String? = null,
+    @SerialName("tool_calls") val toolCalls: List<ChatCompletionToolCall> = emptyList(),
+)
+
+@Serializable
+private data class ChatCompletionToolCall(
+    val type: String = "",
+    val function: ChatCompletionFunctionCall? = null,
+)
+
+@Serializable
+private data class ChatCompletionFunctionCall(
+    val name: String = "",
+    val arguments: String = "",
 )
 
 @Serializable
@@ -287,5 +476,20 @@ private data class ChatCompletionChunkChoice(
 
 @Serializable
 private data class ChatCompletionDelta(
-    val content: String = "",
+    val content: String? = null,
+    @SerialName("tool_calls") val toolCalls: List<ChatCompletionDeltaToolCall> = emptyList(),
+)
+
+@Serializable
+private data class ChatCompletionDeltaToolCall(
+    val index: Int = 0,
+    val id: String? = null,
+    val type: String? = null,
+    val function: ChatCompletionDeltaFunctionCall? = null,
+)
+
+@Serializable
+private data class ChatCompletionDeltaFunctionCall(
+    val name: String? = null,
+    val arguments: String? = null,
 )

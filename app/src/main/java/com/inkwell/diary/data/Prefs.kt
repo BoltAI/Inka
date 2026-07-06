@@ -49,6 +49,10 @@ class Prefs(context: Context) {
         get() = model(provider)
         set(value) = setModel(provider, value)
 
+    var reasoningEffort: ReasoningEffort
+        get() = reasoningEffort(provider)
+        set(value) = setReasoningEffort(provider, value)
+
     var persona: Persona
         get() = Persona.fromStoredName(plain.getString(KEY_PERSONA, Persona.default.name))
         set(value) = plain.edit { putString(KEY_PERSONA, value.name) }
@@ -256,6 +260,18 @@ class Prefs(context: Context) {
         plain.edit { putString(modelKey(provider), value.trim().ifBlank { provider.defaultModel }) }
     }
 
+    fun reasoningEffort(provider: AiProvider): ReasoningEffort {
+        return ReasoningEffort.fromStoredName(
+            plain.getString(reasoningEffortKey(provider), ReasoningEffort.Default.name),
+            provider,
+        )
+    }
+
+    fun setReasoningEffort(provider: AiProvider, value: ReasoningEffort) {
+        val normalized = if (value in ReasoningEffort.choicesFor(provider)) value else ReasoningEffort.Default
+        plain.edit { putString(reasoningEffortKey(provider), normalized.name) }
+    }
+
     fun systemPrompt(): String = PersonaPrompts.forPersona(persona, customPrompt)
 
     private fun apiKeyKey(provider: AiProvider): String {
@@ -271,6 +287,14 @@ class Prefs(context: Context) {
             AiProvider.Anthropic -> KEY_MODEL
             AiProvider.OpenAI -> KEY_OPENAI_MODEL
             AiProvider.Groq -> KEY_GROQ_MODEL
+        }
+    }
+
+    private fun reasoningEffortKey(provider: AiProvider): String {
+        return when (provider) {
+            AiProvider.Anthropic -> KEY_REASONING_EFFORT
+            AiProvider.OpenAI -> KEY_OPENAI_REASONING_EFFORT
+            AiProvider.Groq -> KEY_GROQ_REASONING_EFFORT
         }
     }
 
@@ -319,6 +343,9 @@ class Prefs(context: Context) {
         private const val KEY_MODEL = "model"
         private const val KEY_OPENAI_MODEL = "openai_model"
         private const val KEY_GROQ_MODEL = "groq_model"
+        private const val KEY_REASONING_EFFORT = "reasoning_effort"
+        private const val KEY_OPENAI_REASONING_EFFORT = "openai_reasoning_effort"
+        private const val KEY_GROQ_REASONING_EFFORT = "groq_reasoning_effort"
         private const val KEY_PERSONA = "persona"
         private const val KEY_ACTIVE_NOTEBOOK_ID = "active_notebook_id"
         private const val KEY_SEEN_FADE_DISCLOSURE = "seen_fade_disclosure"

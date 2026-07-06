@@ -28,6 +28,7 @@ import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.data.ReasoningEffort
 import com.inkwell.diary.data.ReplyStyle
 import com.inkwell.diary.page.HandwritingFont
 import com.inkwell.diary.page.HandwritingFontWeight
@@ -228,8 +229,10 @@ class SettingsPanel(
 
         var currentProvider = prefs.provider
         var modelChoices = modelChoicesFor(currentProvider)
+        var effortChoices = reasoningChoicesFor(currentProvider)
         lateinit var providerRow: ChoiceRowHandle
         lateinit var modelRow: ChoiceRowHandle
+        lateinit var effortRow: ChoiceRowHandle
         lateinit var apiKeyRow: ChoiceRowHandle
 
         fun hasApiKey(provider: AiProvider): Boolean = prefs.apiKey(provider).isNotBlank()
@@ -277,8 +280,10 @@ class SettingsPanel(
 
         fun refreshProviderRows() {
             modelChoices = modelChoicesFor(currentProvider)
+            effortChoices = reasoningChoicesFor(currentProvider)
             providerRow.valueText.text = currentProvider.label
             modelRow.valueText.text = prefs.model(currentProvider)
+            effortRow.valueText.text = prefs.reasoningEffort(currentProvider).label
             updateApiKeyRow()
         }
 
@@ -321,6 +326,20 @@ class SettingsPanel(
                 status.text = "${currentProvider.label} model saved: $model"
             }
         }
+        effortRow = addChoiceRow(group, "Thinking Effort", prefs.reasoningEffort(currentProvider).label) {
+            effortChoices = reasoningChoicesFor(currentProvider)
+            showChoiceDialog(
+                title = "Thinking Effort",
+                choices = effortChoices.map { it.label },
+                selectedIndex = effortChoices.indexOf(prefs.reasoningEffort(currentProvider)).coerceAtLeast(0),
+            ) { index ->
+                val effort = effortChoices.getOrElse(index) { ReasoningEffort.Default }
+                prefs.provider = currentProvider
+                prefs.setReasoningEffort(currentProvider, effort)
+                effortRow.valueText.text = effort.label
+                status.text = "${currentProvider.label} thinking effort saved: ${effort.label}"
+            }
+        }
         status.text = if (hasApiKey(currentProvider)) "" else "${currentProvider.label} API key is required."
         panel.addGap(16)
         panel.addView(status, fullWidth())
@@ -357,22 +376,6 @@ class SettingsPanel(
             "Storage",
             "Everything you write is stored on this device until you burn the notebook.",
         )
-
-        lateinit var replyStyleRow: ChoiceRowHandle
-        replyStyleRow = addChoiceRow(notebookGroup, "The diary replies by", prefs.replyStyle.label) {
-            val styles = ReplyStyle.entries.toList()
-            showChoiceDialog(
-                title = "The diary replies by",
-                choices = styles.map { it.label },
-                selectedIndex = styles.indexOf(prefs.replyStyle).coerceAtLeast(0),
-            ) { index ->
-                val style = styles.getOrElse(index) { ReplyStyle.default }
-                prefs.replyStyle = style
-                replyStyleRow.valueText.text = style.label
-                callbacks.onReplyStyleChanged()
-                status.text = "Reply style saved: ${style.label}."
-            }
-        }
 
         lateinit var fadeRow: ChoiceRowHandle
         fadeRow = addChoiceRow(notebookGroup, "How the ink fades", prefs.inkFadeStyle.label) {
@@ -639,6 +642,23 @@ class SettingsPanel(
         val panel = scrollPanel(topPaddingDp = 12, horizontalPaddingDp = 46)
         val group = groupedList()
         panel.addView(group, fullWidth())
+        val status = TextView(context).paperText(16f)
+
+        lateinit var replyStyleRow: ChoiceRowHandle
+        replyStyleRow = addChoiceRow(group, "AI answer mode", prefs.replyStyle.label) {
+            val styles = ReplyStyle.entries.toList()
+            showChoiceDialog(
+                title = "AI answer mode",
+                choices = styles.map { it.label },
+                selectedIndex = styles.indexOf(prefs.replyStyle).coerceAtLeast(0),
+            ) { index ->
+                val style = styles.getOrElse(index) { ReplyStyle.default }
+                prefs.replyStyle = style
+                replyStyleRow.valueText.text = style.label
+                callbacks.onReplyStyleChanged()
+                status.text = "AI answer mode saved: ${style.label}."
+            }
+        }
 
         addToggleRow(
             group = group,
@@ -661,8 +681,13 @@ class SettingsPanel(
             addChoiceRow(group, "Dissolve Lab", "Open") {
                 context.startActivity(Intent(context, DissolveLabActivity::class.java))
             }
+            addChoiceRow(group, "SVG Fidelity Lab", "Open") {
+                context.startActivity(Intent(context, SvgFidelityLabActivity::class.java))
+            }
         }
 
+        panel.addGap(16)
+        panel.addView(status, fullWidth())
         panel.addGap(36)
         return panel.parent as ScrollView
     }
@@ -1105,6 +1130,10 @@ class SettingsPanel(
         } else {
             listOf(savedModel) + provider.modelOptions
         }
+    }
+
+    private fun reasoningChoicesFor(provider: AiProvider): List<ReasoningEffort> {
+        return ReasoningEffort.choicesFor(provider)
     }
 
     private fun addValueRow(group: LinearLayout, label: String, value: String) {

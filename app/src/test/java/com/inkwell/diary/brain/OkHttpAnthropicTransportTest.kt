@@ -44,6 +44,7 @@ class OkHttpAnthropicTransportTest {
                 maxTokens = 300,
                 system = "system",
                 messages = listOf(AnthropicMessage("user", "hi")),
+                outputConfig = AnthropicOutputConfig("max"),
             ),
         )
 
@@ -54,6 +55,7 @@ class OkHttpAnthropicTransportTest {
         val body = recorded.body.readUtf8()
         assertTrue(body.contains(""""model":"model""""))
         assertTrue(body.contains(""""max_tokens":300"""))
+        assertTrue(body.contains(""""output_config":{"effort":"max"}"""))
         assertTrue(body.contains(""""content":"hi""""))
     }
 

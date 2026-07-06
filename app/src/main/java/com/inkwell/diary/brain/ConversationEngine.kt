@@ -4,6 +4,7 @@ import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.PersonaPrompts
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.data.ReasoningEffort
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -17,6 +18,7 @@ data class ConversationSettings(
     val model: String,
     val systemPrompt: String,
     val provider: AiProvider = AiProvider.Anthropic,
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.Default,
 )
 
 class ConversationEngine(
@@ -56,6 +58,8 @@ class ConversationEngine(
             userText = userText,
             maxTokens = 300,
             defaultModel = settings.provider.defaultModel,
+            provider = settings.provider,
+            reasoningEffort = settings.reasoningEffort,
         )
         val transport = transports[settings.provider]
             ?: return AnthropicResult.Failure(BrainErrorKind.BadRequest, "No transport for ${settings.provider.label}")
@@ -85,6 +89,8 @@ class ConversationEngine(
             userText = userText,
             maxTokens = 300,
             defaultModel = settings.provider.defaultModel,
+            provider = settings.provider,
+            reasoningEffort = settings.reasoningEffort,
         )
         val transport = transports[settings.provider]
             ?: return AnthropicResult.Failure(BrainErrorKind.BadRequest, "No transport for ${settings.provider.label}")
@@ -128,23 +134,15 @@ class ConversationEngine(
         if (settings.apiKey.isBlank()) {
             return DrawingReplyResult.Failure(BrainErrorKind.InvalidKey)
         }
-        if (settings.provider != AiProvider.Anthropic) {
+        if (!settings.provider.supportsDrawing()) {
             return DrawingReplyResult.Failure(
                 BrainErrorKind.BadRequest,
-                "Drawing mode currently requires Anthropic because it uses the Messages vision tool protocol.",
+                "Drawing mode currently supports Anthropic and OpenAI.",
             )
         }
-        val transport = transports[AiProvider.Anthropic]
-            ?: return DrawingReplyResult.Failure(BrainErrorKind.BadRequest, "No Anthropic transport")
-        val body = buildDrawingRequestBody(
-            model = settings.model,
-            systemPrompt = settings.systemPrompt,
-            history = history,
-            snapshot = snapshot,
-            latestUserText = latestUserText,
-            forceTool = true,
-            defaultModel = settings.provider.defaultModel,
-        )
+        val transport = transports[settings.provider]
+            ?: return DrawingReplyResult.Failure(BrainErrorKind.BadRequest, "No transport for ${settings.provider.label}")
+        val body = buildProviderDrawingRequestBody(settings, history, snapshot, latestUserText)
         return when (val result = transport.draw(settings.apiKey, body)) {
             is AnthropicToolResult.Success -> {
                 val payload = runCatching {
@@ -175,23 +173,15 @@ class ConversationEngine(
         if (settings.apiKey.isBlank()) {
             return DrawingReplyResult.Failure(BrainErrorKind.InvalidKey)
         }
-        if (settings.provider != AiProvider.Anthropic) {
+        if (!settings.provider.supportsDrawing()) {
             return DrawingReplyResult.Failure(
                 BrainErrorKind.BadRequest,
-                "Drawing mode currently requires Anthropic because it uses the Messages vision tool protocol.",
+                "Drawing mode currently supports Anthropic and OpenAI.",
             )
         }
-        val transport = transports[AiProvider.Anthropic]
-            ?: return DrawingReplyResult.Failure(BrainErrorKind.BadRequest, "No Anthropic transport")
-        val body = buildDrawingRequestBody(
-            model = settings.model,
-            systemPrompt = settings.systemPrompt,
-            history = history,
-            snapshot = snapshot,
-            latestUserText = latestUserText,
-            forceTool = true,
-            defaultModel = settings.provider.defaultModel,
-        )
+        val transport = transports[settings.provider]
+            ?: return DrawingReplyResult.Failure(BrainErrorKind.BadRequest, "No transport for ${settings.provider.label}")
+        val body = buildProviderDrawingRequestBody(settings, history, snapshot, latestUserText)
         val parser = StreamingDrawToolParser()
         var emittedPathCount = 0
         return when (
@@ -232,6 +222,38 @@ class ConversationEngine(
     }
 
     companion object {
+        private fun AiProvider.supportsDrawing(): Boolean {
+            return this == AiProvider.Anthropic || this == AiProvider.OpenAI
+        }
+
+        private fun buildProviderDrawingRequestBody(
+            settings: ConversationSettings,
+            history: List<AnthropicMessage>,
+            snapshot: PageSnapshot,
+            latestUserText: String,
+        ) = when (settings.provider) {
+            AiProvider.Anthropic -> buildDrawingRequestBody(
+                model = settings.model,
+                systemPrompt = settings.systemPrompt,
+                history = history,
+                snapshot = snapshot,
+                latestUserText = latestUserText,
+                forceTool = true,
+                defaultModel = settings.provider.defaultModel,
+                reasoningEffort = settings.reasoningEffort,
+            )
+            AiProvider.OpenAI -> buildOpenAiDrawingRequestBody(
+                model = settings.model,
+                systemPrompt = settings.systemPrompt,
+                history = history,
+                snapshot = snapshot,
+                latestUserText = latestUserText,
+                defaultModel = settings.provider.defaultModel,
+                reasoningEffort = settings.reasoningEffort,
+            )
+            AiProvider.Groq -> buildJsonObject {}
+        }
+
         fun buildRequestBody(
             model: String,
             systemPrompt: String,
@@ -239,12 +261,21 @@ class ConversationEngine(
             userText: String,
             maxTokens: Int,
             defaultModel: String = Prefs.DEFAULT_MODEL,
+            provider: AiProvider = AiProvider.Anthropic,
+            reasoningEffort: ReasoningEffort = ReasoningEffort.Default,
         ): AnthropicRequestBody {
+            val effort = reasoningEffort.apiValue
             return AnthropicRequestBody(
                 model = model.ifBlank { defaultModel },
                 maxTokens = maxTokens,
                 system = systemPrompt,
                 messages = history + AnthropicMessage("user", userText),
+                outputConfig = if (provider == AiProvider.Anthropic && effort != null) {
+                    AnthropicOutputConfig(effort)
+                } else {
+                    null
+                },
+                openAiReasoningEffort = if (provider != AiProvider.Anthropic) effort else null,
             )
         }
 
@@ -256,10 +287,16 @@ class ConversationEngine(
             latestUserText: String = "",
             forceTool: Boolean,
             defaultModel: String = Prefs.DEFAULT_MODEL,
+            reasoningEffort: ReasoningEffort = ReasoningEffort.Default,
         ) = buildJsonObject {
             put("model", model.ifBlank { defaultModel })
             put("max_tokens", DRAWING_MAX_TOKENS)
             put("system", listOf(systemPrompt, DRAWING_SYSTEM_PROMPT).filter { it.isNotBlank() }.joinToString("\n\n"))
+            reasoningEffort.apiValue?.let { effort ->
+                putJsonObject("output_config") {
+                    put("effort", effort)
+                }
+            }
             putJsonArray("messages") {
                 history.forEach { message ->
                     add(
@@ -294,11 +331,77 @@ class ConversationEngine(
                 )
             }
             putJsonArray("tools") {
-                add(drawToolDefinition())
+                add(anthropicDrawToolDefinition())
             }
             if (forceTool) {
                 putJsonObject("tool_choice") {
                     put("type", "tool")
+                    put("name", DRAW_TOOL_NAME)
+                }
+            }
+        }
+
+        fun buildOpenAiDrawingRequestBody(
+            model: String,
+            systemPrompt: String,
+            history: List<AnthropicMessage>,
+            snapshot: PageSnapshot,
+            latestUserText: String = "",
+            defaultModel: String = AiProvider.OpenAI.defaultModel,
+            reasoningEffort: ReasoningEffort = ReasoningEffort.Default,
+        ) = buildJsonObject {
+            put("model", model.ifBlank { defaultModel })
+            put("max_completion_tokens", DRAWING_MAX_TOKENS)
+            reasoningEffort.apiValue?.let { put("reasoning_effort", it) }
+            putJsonArray("messages") {
+                val combinedSystem = listOf(systemPrompt, DRAWING_SYSTEM_PROMPT)
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n\n")
+                if (combinedSystem.isNotBlank()) {
+                    add(
+                        buildJsonObject {
+                            put("role", "system")
+                            put("content", combinedSystem)
+                        },
+                    )
+                }
+                history.forEach { message ->
+                    add(
+                        buildJsonObject {
+                            put("role", message.role)
+                            put("content", message.content)
+                        },
+                    )
+                }
+                add(
+                    buildJsonObject {
+                        put("role", "user")
+                        putJsonArray("content") {
+                            add(
+                                buildJsonObject {
+                                    put("type", "text")
+                                    put("text", drawingUserTurnText(snapshot, latestUserText))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("type", "image_url")
+                                    putJsonObject("image_url") {
+                                        put("url", "data:image/png;base64,${snapshot.pngBase64}")
+                                        put("detail", "high")
+                                    }
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+            putJsonArray("tools") {
+                add(openAiDrawToolDefinition())
+            }
+            putJsonObject("tool_choice") {
+                put("type", "function")
+                putJsonObject("function") {
                     put("name", DRAW_TOOL_NAME)
                 }
             }
@@ -325,49 +428,61 @@ class ConversationEngine(
             )
         }
 
-        private fun drawToolDefinition() = buildJsonObject {
+        private fun anthropicDrawToolDefinition() = buildJsonObject {
             put("name", DRAW_TOOL_NAME)
-            put("description", "Draw your reply onto the shared page as line art. Do not write words, captions, labels, letters, or text. Emit paths first, one complete path object at a time; put page_text_transcript last.")
+            put("description", DRAW_TOOL_DESCRIPTION)
             put("eager_input_streaming", true)
-            putJsonObject("input_schema") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("paths") {
-                        put("type", "array")
-                        put("maxItems", DRAW_TOOL_MAX_PATHS)
-                        putJsonObject("items") {
-                            put("type", "object")
-                            putJsonObject("properties") {
-                                putJsonObject("d") {
-                                    put("type", "string")
-                                    put(
-                                        "description",
-                                        "SVG path data. Allowed commands ONLY: M L C Q Z and their relative forms. No A (arcs), no H/V, no S/T, no transforms, no fills.",
-                                    )
-                                }
-                                putJsonObject("role") {
-                                    put("type", "string")
-                                    put("description", "Use reply for paths that answer the writer.")
-                                }
+            put("input_schema", drawToolInputSchema())
+        }
+
+        private fun openAiDrawToolDefinition() = buildJsonObject {
+            put("type", "function")
+            putJsonObject("function") {
+                put("name", DRAW_TOOL_NAME)
+                put("description", DRAW_TOOL_DESCRIPTION)
+                put("parameters", drawToolInputSchema())
+            }
+        }
+
+        private fun drawToolInputSchema() = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("paths") {
+                    put("type", "array")
+                    put("maxItems", DRAW_TOOL_MAX_PATHS)
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("d") {
+                                put("type", "string")
+                                put(
+                                    "description",
+                                    "SVG path data. Allowed commands ONLY: M L C Q Z and their relative forms. No A (arcs), no H/V, no S/T, no transforms, no fills.",
+                                )
                             }
-                            putJsonArray("required") {
-                                add("d")
+                            putJsonObject("role") {
+                                put("type", "string")
+                                put("description", "Use reply for paths that answer the writer.")
                             }
                         }
-                    }
-                    putJsonObject("page_text_transcript") {
-                        put("type", "string")
-                        put("description", "Transcribe any handwritten words visible in the user's latest additions, verbatim. Empty string if none.")
+                        putJsonArray("required") {
+                            add("d")
+                        }
                     }
                 }
-                putJsonArray("required") {
-                    add("paths")
-                    add("page_text_transcript")
+                putJsonObject("page_text_transcript") {
+                    put("type", "string")
+                    put("description", "Transcribe any handwritten words visible in the user's latest additions, verbatim. Empty string if none.")
                 }
+            }
+            putJsonArray("required") {
+                add("paths")
+                add("page_text_transcript")
             }
         }
 
         private const val DRAW_TOOL_NAME = "draw"
+        private const val DRAW_TOOL_DESCRIPTION = "Draw your reply onto the shared page as line art. Do not write words, captions, labels, letters, or text. Emit paths first, one complete path object at a time; put page_text_transcript last."
         private const val DRAW_TOOL_MAX_PATHS = 60
         private const val DRAWING_MAX_TOKENS = 2000
     }

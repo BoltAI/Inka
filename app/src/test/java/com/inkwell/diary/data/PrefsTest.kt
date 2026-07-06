@@ -201,6 +201,35 @@ class PrefsTest {
     }
 
     @Test
+    fun `provider stores separate thinking effort`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertEquals(ReasoningEffort.Default, prefs.reasoningEffort)
+
+        prefs.setReasoningEffort(AiProvider.Anthropic, ReasoningEffort.Max)
+        prefs.setReasoningEffort(AiProvider.OpenAI, ReasoningEffort.XHigh)
+        prefs.setReasoningEffort(AiProvider.Groq, ReasoningEffort.High)
+
+        prefs.provider = AiProvider.OpenAI
+        assertEquals(ReasoningEffort.XHigh, prefs.reasoningEffort)
+
+        prefs.provider = AiProvider.Groq
+        assertEquals(ReasoningEffort.High, prefs.reasoningEffort)
+
+        prefs.provider = AiProvider.Anthropic
+        assertEquals(ReasoningEffort.Max, prefs.reasoningEffort)
+    }
+
+    @Test
+    fun `provider rejects unsupported thinking effort`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        prefs.setReasoningEffort(AiProvider.Groq, ReasoningEffort.Max)
+
+        assertEquals(ReasoningEffort.Default, prefs.reasoningEffort(AiProvider.Groq))
+    }
+
+    @Test
     fun `provider model options include defaults`() {
         AiProvider.entries.forEach { provider ->
             assertTrue(provider.modelOptions.contains(provider.defaultModel))

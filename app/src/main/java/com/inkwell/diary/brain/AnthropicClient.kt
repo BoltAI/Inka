@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -25,7 +26,14 @@ data class AnthropicRequestBody(
     @SerialName("max_tokens") val maxTokens: Int,
     val system: String,
     val messages: List<AnthropicMessage>,
+    @SerialName("output_config") val outputConfig: AnthropicOutputConfig? = null,
+    @Transient val openAiReasoningEffort: String? = null,
     val stream: Boolean = false,
+)
+
+@Serializable
+data class AnthropicOutputConfig(
+    val effort: String,
 )
 
 @Serializable

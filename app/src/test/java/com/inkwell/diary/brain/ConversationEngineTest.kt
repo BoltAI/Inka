@@ -3,6 +3,7 @@ package com.inkwell.diary.brain
 import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.PersonaPrompts
+import com.inkwell.diary.data.ReasoningEffort
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -37,6 +38,38 @@ class ConversationEngineTest {
         assertEquals(PersonaPrompts.forPersona(Persona.default, ""), body.system)
         assertEquals(listOf("first", "reply", "second"), body.messages.map { it.content })
         assertEquals(listOf("user", "assistant", "user"), body.messages.map { it.role })
+    }
+
+    @Test
+    fun `request body includes Anthropic output effort`() {
+        val body = ConversationEngine.buildRequestBody(
+            model = "claude-sonnet-5",
+            systemPrompt = "system",
+            history = emptyList(),
+            userText = "hello",
+            maxTokens = 300,
+            provider = AiProvider.Anthropic,
+            reasoningEffort = ReasoningEffort.Max,
+        )
+
+        assertEquals("max", body.outputConfig?.effort)
+        assertEquals(null, body.openAiReasoningEffort)
+    }
+
+    @Test
+    fun `request body includes OpenAI compatible effort`() {
+        val body = ConversationEngine.buildRequestBody(
+            model = "gpt-5.4-mini",
+            systemPrompt = "system",
+            history = emptyList(),
+            userText = "hello",
+            maxTokens = 300,
+            provider = AiProvider.OpenAI,
+            reasoningEffort = ReasoningEffort.High,
+        )
+
+        assertEquals(null, body.outputConfig)
+        assertEquals("high", body.openAiReasoningEffort)
     }
 
     @Test
@@ -131,6 +164,7 @@ class ConversationEngineTest {
                 model = "",
                 systemPrompt = "base",
                 provider = AiProvider.Anthropic,
+                reasoningEffort = ReasoningEffort.Max,
             ),
             snapshot = snapshot,
             latestUserText = "draw a cat",
@@ -145,6 +179,7 @@ class ConversationEngineTest {
         )
         val body = transport.drawRequests.single()
         assertEquals(AiProvider.Anthropic.defaultModel, body["model"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("max", body["output_config"]?.jsonObject?.get("effort")?.jsonPrimitive?.contentOrNull)
         assertEquals("tool", body["tool_choice"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull)
         assertEquals("draw", body["tool_choice"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
         val tool = body["tools"]!!.jsonArray.single().jsonObject
@@ -157,6 +192,52 @@ class ConversationEngineTest {
         assertTrue(userText.contains("Latest recognized text"))
         assertTrue(userText.contains("draw a cat"))
         assertTrue(userText.contains("current user turn"))
+    }
+
+    @Test
+    fun `stream drawing routes OpenAI provider through OpenAI vision tool request`() = runTest {
+        val anthropic = FakeStreamingDrawingTransport()
+        val openai = FakeStreamingDrawingTransport()
+        val engine = ConversationEngine(
+            mapOf(
+                AiProvider.Anthropic to anthropic,
+                AiProvider.OpenAI to openai,
+            ),
+        )
+
+        val result = engine.streamDrawing(
+            settings = ConversationSettings(
+                apiKey = "openai-key",
+                model = "",
+                systemPrompt = "base",
+                provider = AiProvider.OpenAI,
+                reasoningEffort = ReasoningEffort.High,
+            ),
+            snapshot = PageSnapshot("png-data", 768, 512, 1800, 1200),
+            latestUserText = "draw a boat",
+            onPath = {},
+        )
+
+        assertTrue(result is DrawingReplyResult.Success)
+        assertEquals(0, anthropic.streamDrawRequests.size)
+        val body = openai.streamDrawRequests.single()
+        assertEquals(AiProvider.OpenAI.defaultModel, body["model"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("high", body["reasoning_effort"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("function", body["tool_choice"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull)
+        assertEquals("draw", body["tool_choice"]?.jsonObject?.get("function")?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
+        val tool = body["tools"]!!.jsonArray.single().jsonObject
+        assertEquals("function", tool["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("draw", tool["function"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull)
+        val messages = body["messages"]!!.jsonArray
+        assertEquals("system", messages.first().jsonObject["role"]?.jsonPrimitive?.contentOrNull)
+        val content = messages.last().jsonObject["content"]!!.jsonArray
+        assertEquals("text", content[0].jsonObject["type"]?.jsonPrimitive?.contentOrNull)
+        assertTrue(content[0].jsonObject["text"]?.jsonPrimitive?.contentOrNull.orEmpty().contains("draw a boat"))
+        assertEquals("image_url", content[1].jsonObject["type"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            "data:image/png;base64,png-data",
+            content[1].jsonObject["image_url"]?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     @Test
@@ -329,6 +410,7 @@ private class FakeManyPathsTransport : AnthropicTransport {
 
 private class FakeStreamingDrawingTransport : AnthropicTransport {
     var completed = false
+    val streamDrawRequests = mutableListOf<kotlinx.serialization.json.JsonObject>()
 
     override suspend fun complete(apiKey: String, requestBody: AnthropicRequestBody): AnthropicResult {
         error("complete should not be used")
@@ -339,6 +421,7 @@ private class FakeStreamingDrawingTransport : AnthropicTransport {
         requestBody: kotlinx.serialization.json.JsonObject,
         onToolJsonDelta: suspend (String) -> Unit,
     ): AnthropicToolStreamResult {
+        streamDrawRequests.add(requestBody)
         onToolJsonDelta("""{"paths":[{"d":"M 0 0 L 1 1"}""")
         onToolJsonDelta(""",{"d":"M 2 2 L 3 3"}],"page_text_transcript":"draw two lines"}""")
         completed = true
