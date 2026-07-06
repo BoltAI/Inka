@@ -1,75 +1,99 @@
 # Inka
 
-Inka is a sideloaded Android app for Boox e-ink tablets. It turns a blank page into a private handwritten diary that answers in script, one word at a time.
+Inka is a handwritten diary for BOOX e-ink tablets.
 
-## Status
+Write with the pen, rest your hand, and the page answers back in a flowing handwritten voice. There is no chat box, no keyboard, and no glowing screen UI. The whole interaction is built around a blank sheet of paper.
 
-This repository contains the v1 implementation pass from `riddle-spec.md` plus the one-notebook persistence refactor from `manuscript-mode-spec.md`: classic Android Views, Onyx TouchHelper raw pen capture, ML Kit Digital Ink recognition, BYOK AI requests, e-ink fades, persisted notebook history, word-by-word reply rendering, Sketchbook drawing replies, onboarding, settings, tests, and release docs.
+## Why
 
-Real Boox hardware is still required for the product gate. A normal emulator can verify the app shell and fallback drawing, but it cannot validate TouchHelper latency or e-ink refresh modes.
+Most AI tools still feel like computers: prompts, sidebars, transcripts, and text boxes. Inka tries a different shape. It treats the tablet as paper first, then lets the paper quietly respond.
 
-## Build
+It is meant for journaling, reflection, and small conversations where the physical act of writing matters.
+
+## Features
+
+- Pen-first writing on BOOX tablets
+- Handwritten replies that appear directly on the page
+- Word-by-word reply animation
+- Ink fade animation after you finish writing
+- Local notebook history
+- Reader-style settings UI for e-ink
+- Bring-your-own-key provider setup
+- Optional experimental drawing replies in Developer settings
+- No accounts, analytics, telemetry, backend, or crash reporting
+
+## Requirements
+
+- A BOOX Android e-ink tablet
+- Android 10 or newer
+- Network access for AI replies
+- An API key for one supported provider during onboarding
+
+Inka uses BOOX pen APIs for the best writing feel. A normal Android emulator can build and open the app, but it cannot prove BOOX pen latency or e-ink refresh quality.
+
+## Install
+
+### Prebuilt APK
+
+1. Download the latest APK from GitHub Releases.
+2. Copy the APK to your BOOX tablet.
+3. Open the APK on the tablet.
+4. Allow installation from local files if Android asks.
+5. Launch **Inka**.
+6. Complete onboarding: choose a provider, paste your API key, and download the handwriting model.
+7. Write on the blank page and pause.
+
+### Build From Source
 
 ```bash
 ./gradlew test assembleRelease
 ```
 
-The release build is signed with the debug signing config so a clean clone can produce a sideloadable APK with no local secrets. Replace the signing config before a public release.
-
-The APK will be at:
+The APK is generated at:
 
 ```text
 app/build/outputs/apk/release/app-release.apk
 ```
 
-## Install On Boox
+The default release build is debug-signed so the project can be built from a clean clone without private signing material. Use your own signing setup before publishing official builds.
 
-1. Build the release APK.
-2. Copy `app-release.apk` to the Boox tablet.
-3. Open the file on the Boox device and allow installation from local files if prompted.
-4. Launch Inka.
-5. Choose Anthropic, OpenAI, or Groq during onboarding and paste that provider's API key.
-6. Download the English handwriting model.
-7. Write on the blank page and pause for the configured commit delay.
+## Use
 
-Sketchbook Drawing replies are configured in Settings -> Developer -> AI answer mode. Drawing mode currently supports Anthropic and OpenAI.
+- Write with the pen.
+- Pause to let Inka read the page.
+- Tap the book button to read notebook history.
+- Tap the eraser to clear the live page.
+- Open Settings to change provider, model, handwriting, recognition language, and privacy-local notebook settings.
 
-## Boox Smoke Test
+Experimental drawing replies are hidden under `Settings -> Developer -> AI answer mode`.
 
-With a Boox device connected over adb:
+## BOOX Smoke Test
+
+With a BOOX device connected over adb:
 
 ```bash
-ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh
+ANDROID_SERIAL=<device-id> scripts/boox-smoke.sh
 ```
 
-The script builds the debug APKs, installs with `adb install -r`, enables the app and test package, runs the instrumentation smoke tests through `am instrument`, and relaunches the app while capturing logcat under `build/boox-smoke/`.
-
-Use this script instead of `./gradlew connectedDebugAndroidTest` on BOOX hardware. The Gradle connected runner can interact badly with BOOX app-freeze behavior and may uninstall or reset the app package during installation.
+This builds, installs, runs instrumentation smoke tests, relaunches the app, and stores logs under `build/boox-smoke/`.
 
 ## Privacy
 
-- No backend.
-- No accounts.
-- No analytics.
-- No telemetry.
-- No crash reporting.
-- Provider API keys are stored in encrypted device preferences.
-- One active notebook is stored as a local JSON file under app-private storage so recognized exchanges survive restarts.
-- The live page still uses the fade illusion; persistence is storage behavior, not a separate writing mode.
-- Handwriting recognition runs on-device after the ML Kit model download.
-- Drawing-mode page snapshots are transient request inputs and are not persisted.
+- No server owned by this project
+- No account system
+- No analytics
+- No telemetry
+- No crash reporting
+- API keys are stored in encrypted Android preferences when available
+- Notebook data is stored locally in app-private storage
+- Handwriting recognition runs on-device after the model download
 
-## V-next
+## Device Note
 
-- Exporting or sharing the notebook is intentionally out of scope for this pass. The JSON notebook file is structured so export can be added later without changing the core exchange model.
+This is an unofficial BOOX app. It is not affiliated with Onyx or BOOX. Sideloading software is your responsibility; keep a way to uninstall or reset the app if something behaves badly.
 
-## Demo GIF
+## License
 
-Placeholder: add a 20-30s Boox screen video or GIF showing fade and word-by-word reply before publishing a release.
+App code is MIT licensed. See `LICENSE`.
 
-## Licenses
-
-- App code: see `LICENSE`.
-- Dancing Script font: see `licenses/DANCING-SCRIPT-OFL.txt`.
-- Onyx SDK: see BOOX/Onyx SDK terms for `com.onyx.android.sdk:onyxsdk-pen`.
-- ML Kit: see Google ML Kit terms.
+Dancing Script is bundled under the SIL Open Font License. See `licenses/DANCING-SCRIPT-OFL.txt`.
