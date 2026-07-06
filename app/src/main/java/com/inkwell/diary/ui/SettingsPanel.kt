@@ -677,12 +677,23 @@ class SettingsPanel(
             prefs.showToolbarLogButton = checked
             callbacks.onToolbarSettingsChanged()
         }
+        addToggleRow(
+            group = group,
+            label = "Use Onyx fade replay",
+            explanation = "Render fade frames with the BOOX pen renderer instead of the fallback Canvas stroke renderer.",
+            checked = prefs.useOnyxFadeReplay,
+        ) { checked ->
+            prefs.useOnyxFadeReplay = checked
+        }
         if (BuildConfig.DEBUG) {
             addChoiceRow(group, "Dissolve Lab", "Open") {
                 context.startActivity(Intent(context, DissolveLabActivity::class.java))
             }
             addChoiceRow(group, "SVG Fidelity Lab", "Open") {
                 context.startActivity(Intent(context, SvgFidelityLabActivity::class.java))
+            }
+            addChoiceRow(group, "Ink Replay Lab", "Open") {
+                context.startActivity(Intent(context, InkReplayLabActivity::class.java))
             }
         }
 

@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         renderer = PageRenderer(this)
         renderer.setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)
         renderer.setInkFadeStyle(prefs.inkFadeStyle)
+        renderer.setUseOnyxInkReplayForFade(prefs.useOnyxFadeReplay)
         renderer.setDissolveConfig(prefs.dissolveConfig())
         pendingDebugReply = debugReplyFrom(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -165,6 +166,18 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             root.post { drawPendingDebugReplyIfReady() }
         } else {
             showPage()
+        }
+    }
+
+    override fun onPause() {
+        captureController?.setInputEnabled(false)
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::surfaceView.isInitialized) {
+            surfaceView.post { applyCaptureStateForCurrentUi() }
         }
     }
 
@@ -386,7 +399,10 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             },
             callbacks = this,
         ).also { controller ->
-            surfaceView.post { controller.attach() }
+            surfaceView.post {
+                controller.attach()
+                applyCaptureStateForCurrentUi()
+            }
         }
     }
 
@@ -913,6 +929,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         addDebug("prompt fade started")
         captureController?.hideRawInkLayer()
         renderer.setInkFadeStyle(prefs.inkFadeStyle)
+        renderer.setUseOnyxInkReplayForFade(prefs.useOnyxFadeReplay)
+        addDebug("fade stroke renderer: ${if (prefs.useOnyxFadeReplay) "onyx" else "canvas"}")
         renderer.setDissolveConfig(prefs.dissolveConfig())
         renderer.fadeStrokes(strokes, includeFullOpacityFrame = false)
         showFadeDisclosureOnce()
@@ -1265,11 +1283,19 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     private fun refreshCaptureEnabled() {
-        if (settingsPanel != null || busy) return
+        applyCaptureStateForCurrentUi()
+    }
+
+    private fun applyCaptureStateForCurrentUi() {
+        val controller = captureController ?: return
+        if (settingsPanel != null || busy) {
+            controller.setInputEnabled(false)
+            return
+        }
         if (historyOpen) {
-            captureController?.setReadOnlyInputEnabled(true)
+            controller.setReadOnlyInputEnabled(true)
         } else {
-            captureController?.setInputEnabled(true)
+            controller.setInputEnabled(true)
         }
     }
 

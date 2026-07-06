@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import com.inkwell.diary.data.InkPoint
 import com.inkwell.diary.data.InkStroke
+import com.inkwell.diary.data.drawInkStrokes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -216,6 +217,7 @@ class InkFadeAnimatorTest {
             pageBitmap = bitmap,
             pageCanvas = Canvas(bitmap),
             inkPaint = Paint(Paint.ANTI_ALIAS_FLAG),
+            drawStrokes = { canvas, strokes, paint -> drawInkStrokes(canvas, strokes, paint) },
             clearPage = {},
             clearRect = {},
             render = { _, _ -> },

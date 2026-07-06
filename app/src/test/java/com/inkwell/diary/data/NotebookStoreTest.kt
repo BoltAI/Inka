@@ -58,9 +58,45 @@ class NotebookStoreTest {
         assertTrue(file.exists())
         assertTrue(file.readText().contains("\"schemaVersion\": 3"))
         assertTrue(file.readText().contains("\"tiltX\": 12"))
+        assertTrue(file.readText().contains("\"strokeStyle\": \"Fountain\""))
+        assertTrue(file.readText().contains("\"strokeWidthMm\": 1.0"))
+        assertTrue(file.readText().contains("\"color\": -16777216"))
+        assertTrue(file.readText().contains("\"onyxTouchPointList\""))
 
         val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.Whisper) as NotebookLoadResult.Ready).notebook
         assertEquals(saved, loaded)
+    }
+
+    @Test
+    fun `round trips saved onyx point list payloads`() = runTest {
+        val store = NotebookStore(temporaryFolder.root) { 1000L }
+        val saved = Notebook(
+            id = DEFAULT_NOTEBOOK_ID,
+            title = DEFAULT_NOTEBOOK_TITLE,
+            personaId = Persona.Whisper.name,
+            createdAt = 1000L,
+            updatedAt = 1001L,
+            exchanges = listOf(
+                Exchange(
+                    id = "exchange-1001",
+                    committedAt = 1001L,
+                    ink = NotebookInk(
+                        strokes = listOf(
+                            InkStroke(
+                                points = listOf(InkPoint(x = 12f, y = 24f, pressure = 1024f, timestampMs = 1001L)),
+                                onyxTouchPointList = "encoded-touch-point-list",
+                            ),
+                        ),
+                        recognizedText = "saved ink",
+                    ),
+                ),
+            ),
+        )
+
+        store.save(saved)
+
+        val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.Whisper) as NotebookLoadResult.Ready).notebook
+        assertEquals("encoded-touch-point-list", loaded.exchanges.single().ink?.strokes?.single()?.onyxTouchPointList)
     }
 
     @Test

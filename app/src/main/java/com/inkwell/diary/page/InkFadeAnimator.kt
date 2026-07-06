@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.os.SystemClock
 import com.inkwell.diary.data.InkStroke
-import com.inkwell.diary.data.drawInkStrokes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -78,6 +77,7 @@ class InkFadeTarget(
     val pageBitmap: Bitmap,
     val pageCanvas: Canvas,
     val inkPaint: Paint,
+    val drawStrokes: (Canvas, List<InkStroke>, Paint) -> Unit,
     val clearPage: () -> Unit,
     val clearRect: (Rect) -> Unit,
     val render: (full: Boolean, dirtyRect: Rect?) -> Unit,
@@ -98,7 +98,7 @@ class SteppedFadeAnimator : InkFadeAnimator {
             target.clearPage()
             if (alpha > 0) {
                 target.inkPaint.alpha = alpha
-                drawInkStrokes(target.pageCanvas, strokes, target.inkPaint)
+                target.drawStrokes(target.pageCanvas, strokes, target.inkPaint)
                 target.inkPaint.alpha = 255
             }
             target.render(false, null)
@@ -118,7 +118,7 @@ class DissolveFadeAnimator(
 
     override suspend fun fade(strokes: List<InkStroke>, target: InkFadeTarget, options: InkFadeOptions) {
         target.clearPage()
-        drawInkStrokes(target.pageCanvas, strokes, target.inkPaint)
+        target.drawStrokes(target.pageCanvas, strokes, target.inkPaint)
         target.render(false, null)
         val prepared = withContext(Dispatchers.Default) {
             prepare(strokes, target)
@@ -146,7 +146,7 @@ class DissolveFadeAnimator(
             strokeBounds.right + config.boundsPaddingPx,
             strokeBounds.bottom + config.boundsPaddingPx,
         ).boundedTo(target.pageBitmap.width, target.pageBitmap.height) ?: return null
-        val mask = rasterizeMask(strokes, baseBounds, target.inkPaint)
+        val mask = rasterizeMask(strokes, baseBounds, target.inkPaint, target)
         val cells = DissolvePlanner.cellsForMask(
             mask = mask.ink,
             maskWidth = mask.width,
@@ -178,7 +178,7 @@ class DissolveFadeAnimator(
         }
     }
 
-    private fun rasterizeMask(strokes: List<InkStroke>, bounds: Rect, paint: Paint): InkMask {
+    private fun rasterizeMask(strokes: List<InkStroke>, bounds: Rect, paint: Paint, target: InkFadeTarget): InkMask {
         val bitmap = Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val shiftedPaint = Paint(paint).apply {
@@ -187,7 +187,7 @@ class DissolveFadeAnimator(
             isAntiAlias = true
         }
         canvas.translate(-bounds.left.toFloat(), -bounds.top.toFloat())
-        drawInkStrokes(canvas, strokes, shiftedPaint)
+        target.drawStrokes(canvas, strokes, shiftedPaint)
         val pixels = IntArray(bounds.width() * bounds.height())
         bitmap.getPixels(pixels, 0, bounds.width(), 0, 0, bounds.width(), bounds.height())
         val ink = BooleanArray(pixels.size) { index -> Color.alpha(pixels[index]) > 0 }

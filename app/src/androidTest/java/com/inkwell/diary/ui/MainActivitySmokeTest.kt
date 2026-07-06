@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
-import com.inkwell.diary.data.DEFAULT_NOTEBOOK_ID
 import com.inkwell.diary.data.DEFAULT_NOTEBOOK_TITLE
 import com.inkwell.diary.data.Exchange
 import com.inkwell.diary.data.InkPoint
@@ -57,7 +56,7 @@ class MainActivitySmokeTest {
         val context = instrumentation.targetContext
         val prefs = Prefs(context)
         val store = NotebookStore(context.filesDir)
-        val notebookFile = store.fileFor(DEFAULT_NOTEBOOK_ID)
+        val notebookFile = store.fileFor(SMOKE_DENSE_NOTEBOOK_ID)
         val originalNotebook = notebookFile.takeIf { it.exists() }?.readBytes()
         val previousOnboardingState = prefs.onboardingComplete
         val previousPersona = prefs.persona
@@ -69,16 +68,21 @@ class MainActivitySmokeTest {
         try {
             prefs.onboardingComplete = true
             prefs.persona = Persona.default
-            prefs.activeNotebookId = DEFAULT_NOTEBOOK_ID
-            store.save(denseNotebook(Persona.default))
+            prefs.activeNotebookId = SMOKE_DENSE_NOTEBOOK_ID
+            store.save(denseNotebook(Persona.default, SMOKE_DENSE_NOTEBOOK_ID))
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             SystemClock.sleep(1_000L)
             instrumentation.waitForIdleSync()
 
-            assertTrue(activity.containsShownContentDescription("Read notebook"))
-            val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.default) as NotebookLoadResult.Ready).notebook
-            val ink = loaded.exchanges.single().ink!!
+            assertTrue(
+                "Expected the read notebook action to render after dense notebook launch",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsShownContentDescription("Read notebook") == true
+                },
+            )
+            val loaded = (store.load(SMOKE_DENSE_NOTEBOOK_ID, Persona.default) as NotebookLoadResult.Ready).notebook
+            val ink = loaded.exchanges.first { it.id == DENSE_EXCHANGE_ID }.ink!!
             assertEquals(DENSE_STROKES * DENSE_POINTS_PER_STROKE, ink.strokes.sumOf { it.points.size })
             assertFalse(activity.isFinishing)
         } finally {
@@ -173,7 +177,8 @@ class MainActivitySmokeTest {
                 "Expected Developer AI answer mode row to render",
                 waitUntil(timeoutMs = 10_000L) {
                     activity?.containsVisibleText("AI answer mode") == true &&
-                        activity?.containsVisibleText("Text only") == true
+                        activity?.containsVisibleText("Text only") == true &&
+                        activity?.containsVisibleText("Ink Replay Lab") == true
                 },
             )
         } finally {
@@ -190,7 +195,7 @@ class MainActivitySmokeTest {
         val context = instrumentation.targetContext
         val prefs = Prefs(context)
         val store = NotebookStore(context.filesDir)
-        val notebookFile = store.fileFor(DEFAULT_NOTEBOOK_ID)
+        val notebookFile = store.fileFor(SMOKE_HISTORY_NOTEBOOK_ID)
         val originalNotebook = notebookFile.takeIf { it.exists() }?.readBytes()
         val previousOnboardingState = prefs.onboardingComplete
         val previousPersona = prefs.persona
@@ -203,9 +208,9 @@ class MainActivitySmokeTest {
         try {
             prefs.onboardingComplete = true
             prefs.persona = Persona.default
-            prefs.activeNotebookId = DEFAULT_NOTEBOOK_ID
+            prefs.activeNotebookId = SMOKE_HISTORY_NOTEBOOK_ID
             prefs.showToolbarLogButton = true
-            store.save(denseNotebook(Persona.default))
+            store.save(denseNotebook(Persona.default, SMOKE_HISTORY_NOTEBOOK_ID))
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             assertTrue(
@@ -244,7 +249,7 @@ class MainActivitySmokeTest {
         }
     }
 
-    private fun denseNotebook(persona: Persona): Notebook {
+    private fun denseNotebook(persona: Persona, id: String): Notebook {
         val strokes = (0 until DENSE_STROKES).map { strokeIndex ->
             InkStroke(
                 points = (0 until DENSE_POINTS_PER_STROKE).map { pointIndex ->
@@ -258,14 +263,14 @@ class MainActivitySmokeTest {
             )
         }
         return Notebook(
-            id = DEFAULT_NOTEBOOK_ID,
+            id = id,
             title = DEFAULT_NOTEBOOK_TITLE,
             personaId = persona.name,
             createdAt = 10L,
             updatedAt = 11L,
             exchanges = listOf(
                 Exchange(
-                    id = "exchange-11",
+                    id = DENSE_EXCHANGE_ID,
                     committedAt = 11L,
                     ink = NotebookInk(
                         strokes = strokes,
@@ -368,6 +373,9 @@ class MainActivitySmokeTest {
     }
 
     private companion object {
+        private const val SMOKE_DENSE_NOTEBOOK_ID = "smoke-dense-notebook"
+        private const val SMOKE_HISTORY_NOTEBOOK_ID = "smoke-history-notebook"
+        private const val DENSE_EXCHANGE_ID = "exchange-11"
         private const val DENSE_STROKES = 12
         private const val DENSE_POINTS_PER_STROKE = 500
     }

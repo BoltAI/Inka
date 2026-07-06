@@ -10,9 +10,11 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.RectF
+import android.os.Build
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.util.Log
 import android.util.Base64
 import com.inkwell.diary.brain.PageSnapshot
 import com.inkwell.diary.data.InkFadeStyle
@@ -45,6 +47,7 @@ class PageRenderer(
     private var dissolveFadeAnimator = DissolveFadeAnimator()
     private var bitmapDissolveAnimator = BitmapDissolveAnimator()
     private var inkFadeStyle = InkFadeStyle.default
+    private var useOnyxInkReplayForFade = true
     private var activeFadeCleanup: (() -> Unit)? = null
     private val notebookPageCache = object : LinkedHashMap<PageCacheKey, Bitmap>(3, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<PageCacheKey, Bitmap>?): Boolean {
@@ -121,6 +124,10 @@ class PageRenderer(
 
     fun setInkFadeStyle(style: InkFadeStyle) {
         inkFadeStyle = style
+    }
+
+    fun setUseOnyxInkReplayForFade(enabled: Boolean) {
+        useOnyxInkReplayForFade = enabled
     }
 
     fun setDissolveConfig(config: DissolveConfig) {
@@ -212,6 +219,7 @@ class PageRenderer(
             pageBitmap = b,
             pageCanvas = c,
             inkPaint = inkPaint,
+            drawStrokes = ::drawFadeInkStrokes,
             clearPage = { drawPaper() },
             clearRect = { rect -> clearRect(rect) },
             render = { full, dirtyRect -> render(full = full, dirtyRect = dirtyRect) },
@@ -241,6 +249,7 @@ class PageRenderer(
             pageBitmap = b,
             pageCanvas = c,
             inkPaint = inkPaint,
+            drawStrokes = ::drawFadeInkStrokes,
             clearPage = { drawPaper() },
             clearRect = { rect -> clearRect(rect) },
             render = { full, dirtyRect -> render(full = full, dirtyRect = dirtyRect) },
@@ -321,6 +330,16 @@ class PageRenderer(
         drawPaper()
         drawInkStrokes(c, strokes, inkPaint)
         render(full = false, dirtyRect = dirtyRect?.toPaddedRect())
+    }
+
+    private fun drawFadeInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
+        if (useOnyxInkReplayForFade && onyxInkReplayRenderer.draw(c, strokes, paint)) {
+            Log.i(TAG, "fade stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+            return
+        }
+        val reason = if (useOnyxInkReplayForFade) "onyx_failed" else "disabled"
+        Log.i(TAG, "fade stroke renderer=canvas reason=$reason alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+        drawInkStrokes(c, strokes, paint)
     }
 
     fun showNotebookElements(elements: List<NotebookElement>, fullRefresh: Boolean = true) {
@@ -625,6 +644,9 @@ class PageRenderer(
     private fun drawNotebookInkStrokes(c: Canvas, strokes: List<InkStroke>) {
         if (strokes.isEmpty()) return
         if (!onyxInkReplayRenderer.draw(c, strokes, inkPaint)) {
+            if (isLikelyBooxDevice()) {
+                return
+            }
             drawInkStrokes(c, strokes, inkPaint)
         }
     }
@@ -783,6 +805,14 @@ class PageRenderer(
         private const val REPLY_STROKE_GAP_MS = 150L
         private const val CAPTION_WORD_GAP_MS = 80L
         private const val FORCED_REPLY_CHUNK_CHARS = 120
+        private const val TAG = "PageRenderer"
+
+        private fun isLikelyBooxDevice(): Boolean {
+            val deviceText = listOf(Build.MANUFACTURER, Build.BRAND, Build.MODEL, Build.DEVICE, Build.PRODUCT)
+                .joinToString(" ")
+                .lowercase()
+            return "onyx" in deviceText || "boox" in deviceText
+        }
     }
 }
 

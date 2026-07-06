@@ -21,7 +21,16 @@ data class InkPoint(
 @Serializable
 data class InkStroke(
     val points: List<InkPoint>,
+    val strokeStyle: InkStrokeStyle = InkStrokeStyle.Fountain,
+    val strokeWidthMm: Float = DEFAULT_INK_STROKE_WIDTH_MM,
+    val color: Int = INK_STROKE_BLACK,
+    val onyxTouchPointList: String? = null,
 )
+
+@Serializable
+enum class InkStrokeStyle {
+    Fountain,
+}
 
 data class InkMessage(
     val strokes: List<InkStroke>,
@@ -32,10 +41,12 @@ data class InkMessage(
 class StrokeStore {
     private val strokes = mutableListOf<InkStroke>()
     private var current = mutableListOf<InkPoint>()
+    private var currentOnyxTouchPointList: String? = null
 
     fun beginStroke(point: InkPoint) {
         finishCurrent()
         current = mutableListOf(point)
+        currentOnyxTouchPointList = null
     }
 
     fun addPoint(point: InkPoint) {
@@ -46,14 +57,16 @@ class StrokeStore {
         }
     }
 
-    fun replaceCurrentStroke(points: List<InkPoint>) {
+    fun replaceCurrentStroke(points: List<InkPoint>, onyxTouchPointList: String? = currentOnyxTouchPointList) {
         current = points.toMutableList()
+        currentOnyxTouchPointList = onyxTouchPointList
     }
 
     fun finishCurrent() {
         if (current.isNotEmpty()) {
-            strokes.add(InkStroke(current.toList()))
+            strokes.add(InkStroke(current.toList(), onyxTouchPointList = currentOnyxTouchPointList))
             current.clear()
+            currentOnyxTouchPointList = null
         }
     }
 
@@ -65,7 +78,7 @@ class StrokeStore {
     fun snapshotStrokes(): List<InkStroke> {
         val all = strokes.toMutableList()
         if (current.isNotEmpty()) {
-            all.add(InkStroke(current.toList()))
+            all.add(InkStroke(current.toList(), onyxTouchPointList = currentOnyxTouchPointList))
         }
         return all
     }
@@ -75,6 +88,7 @@ class StrokeStore {
     fun clear() {
         strokes.clear()
         current.clear()
+        currentOnyxTouchPointList = null
     }
 }
 
@@ -164,3 +178,5 @@ private fun normalizedPressure(rawPressure: Float): Float {
 
 private const val RAW_PRESSURE_MAX = 4096f
 private const val DENSE_REPLAY_POINT_LIMIT = 900
+const val DEFAULT_INK_STROKE_WIDTH_MM = 1.0f
+const val INK_STROKE_BLACK = -0x1000000

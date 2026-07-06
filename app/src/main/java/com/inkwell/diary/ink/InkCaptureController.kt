@@ -26,6 +26,8 @@ class InkCaptureController(
     private val pageRectProvider: () -> Rect,
     private val excludeRectsProvider: () -> List<Rect>,
     private val callbacks: Callbacks,
+    private val consumeFingerGestures: Boolean = true,
+    private val disableFingerTouchDuringPenStroke: Boolean = true,
 ) {
     interface Callbacks {
         fun onPenDown(): Boolean
@@ -81,6 +83,7 @@ class InkCaptureController(
     private var readOnlyGesturesEnabled = false
     private var rawStrokeAccepted = false
     private var fallbackStrokeAccepted = false
+    private var lastRawTouchPointList: TouchPointList? = null
 
     private val rawCallback = object : RawInputCallback() {
         override fun onBeginRawDrawing(b: Boolean, touchPoint: TouchPoint) {
@@ -92,6 +95,7 @@ class InkCaptureController(
                 enableFingerTouchAfterStroke()
                 return
             }
+            lastRawTouchPointList = null
             strokeStore.beginStroke(touchPoint.toInkPoint())
             commitTimer.onPenDown()
             Log.d(TAG, "raw pen begin")
@@ -100,13 +104,22 @@ class InkCaptureController(
         override fun onEndRawDrawing(b: Boolean, touchPoint: TouchPoint) {
             try {
                 if (!inputEnabled || !rawStrokeAccepted) return
-                strokeStore.addPoint(touchPoint.toInkPoint())
+                val finalPointList = finalRawTouchPointList(touchPoint)
+                if (finalPointList != null && !finalPointList.isEmpty()) {
+                    strokeStore.replaceCurrentStroke(
+                        points = finalPointList.points.map { it.toInkPoint() },
+                        onyxTouchPointList = OnyxTouchPointListCodec.encode(finalPointList),
+                    )
+                } else {
+                    strokeStore.addPoint(touchPoint.toInkPoint())
+                }
                 strokeStore.finishCurrent()
                 callbacks.onPenUp()
                 commitTimer.onPenUp()
                 Log.d(TAG, "raw pen end")
                 publishCapturedInk(dirtyRect = null)
             } finally {
+                lastRawTouchPointList = null
                 rawStrokeAccepted = false
                 enableFingerTouchAfterStroke()
             }
@@ -120,9 +133,14 @@ class InkCaptureController(
 
         override fun onRawDrawingTouchPointListReceived(touchPointList: TouchPointList) {
             if (!inputEnabled || !rawStrokeAccepted) return
-            strokeStore.replaceCurrentStroke(touchPointList.points.map { it.toInkPoint() })
+            lastRawTouchPointList = TouchPointList(touchPointList)
+            strokeStore.replaceCurrentStroke(
+                points = touchPointList.points.map { it.toInkPoint() },
+                onyxTouchPointList = OnyxTouchPointListCodec.encode(touchPointList),
+            )
             commitTimer.onStrokeMove()
             Log.d(TAG, "raw pen point list size=${touchPointList.points.size}")
+            publishCapturedInk(dirtyRect = null)
         }
 
         override fun onBeginRawErasing(b: Boolean, touchPoint: TouchPoint) = Unit
@@ -185,7 +203,7 @@ class InkCaptureController(
                 touchHelper?.setRawDrawingEnabled(true)
             } else if (keepRawInkVisible) {
                 touchHelper?.setRawDrawingRenderEnabled(true)
-                touchHelper?.setRawDrawingEnabled(true)
+                touchHelper?.setRawInputReaderEnable(false)
             } else {
                 touchHelper?.setRawDrawingRenderEnabled(false)
                 touchHelper?.setRawDrawingEnabled(false)
@@ -207,6 +225,20 @@ class InkCaptureController(
             touchHelper?.setRawDrawingEnabled(false)
         }
         Log.i(TAG, "read-only input ${if (enabled) "enabled" else "disabled"}; raw drawing disabled")
+        enableFingerTouchAfterStroke()
+    }
+
+    fun freezeRawInkLayer() {
+        readOnlyGesturesEnabled = false
+        inputEnabled = false
+        rawStrokeAccepted = false
+        fallbackStrokeAccepted = false
+        commitTimer.cancel()
+        runCatching {
+            touchHelper?.setRawDrawingRenderEnabled(true)
+            touchHelper?.setRawInputReaderEnable(false)
+        }
+        Log.i(TAG, "raw ink frozen; raw input reader disabled")
         enableFingerTouchAfterStroke()
     }
 
@@ -251,7 +283,7 @@ class InkCaptureController(
                 gestureDetector.onTouchEvent(event)
             }
             if (rawDrawingActive || !inputEnabled) {
-                return@setOnTouchListener isFinger && allowFingerGestures
+                return@setOnTouchListener isFinger && allowFingerGestures && consumeFingerGestures
             }
             handleFallbackInk(event)
             true
@@ -339,6 +371,7 @@ class InkCaptureController(
     }
 
     private fun disableFingerTouchDuringStroke() {
+        if (!disableFingerTouchDuringPenStroke) return
         runCatching {
             val metrics = appContext.resources.displayMetrics
             EpdController.setAppCTPDisableRegion(
@@ -361,6 +394,21 @@ class InkCaptureController(
             touchHelper?.setLimitRect(pageRectProvider(), excludeRectsProvider())
             touchHelper?.setRawDrawingEnabled(inputEnabled)
         }
+    }
+
+    private fun finalRawTouchPointList(touchPoint: TouchPoint): TouchPointList? {
+        val currentList = lastRawTouchPointList?.let { TouchPointList(it) } ?: return null
+        if (currentList.isEmpty() || !currentList.last().sameSampleAs(touchPoint)) {
+            currentList.add(TouchPoint(touchPoint))
+        }
+        return currentList
+    }
+
+    private fun TouchPoint.sameSampleAs(other: TouchPoint): Boolean {
+        return getTimestamp() == other.getTimestamp() &&
+            getX() == other.getX() &&
+            getY() == other.getY() &&
+            getPressure() == other.getPressure()
     }
 
     private fun strokeWidthPx(): Float {
