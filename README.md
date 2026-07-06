@@ -77,6 +77,10 @@ ANDROID_SERIAL=<device-id> scripts/boox-smoke.sh
 
 This builds, installs, runs instrumentation smoke tests, relaunches the app, and stores logs under `build/boox-smoke/`.
 
+## Design Notes
+
+Product and verification notes live in `docs/design/`. They are reference material for contributors; the README is the canonical install and usage guide.
+
 ## Privacy
 
 - No server owned by this project

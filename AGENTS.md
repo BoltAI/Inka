@@ -4,6 +4,7 @@
 - Use native Kotlin Android with classic Views. Do not migrate UI to Compose unless the project is intentionally redesigned.
 - The product model is one active notebook that is always persisted. Fade is a live-page presentation behavior, not a separate storage mode.
 - Keep user-facing strings neutral and public-ready. Do not add internal codenames, private specs, or joke references to app copy, package names, docs, or release text.
+- Keep design notes under `docs/design/`; do not put draft specs or verification logs in the repository root.
 
 ## Build And Verification
 
