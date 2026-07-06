@@ -51,11 +51,14 @@ import com.inkwell.diary.data.rebuildApiHistory
 import com.inkwell.diary.ink.CommitTimer
 import com.inkwell.diary.ink.CoroutineCommitScheduler
 import com.inkwell.diary.ink.InkCaptureController
+import com.inkwell.diary.page.DissolveLabStore
 import com.inkwell.diary.page.EinkRefresher
 import com.inkwell.diary.page.HandwritingFont
+import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.page.PageCanvasView
 import com.inkwell.diary.page.PageRenderer
 import com.inkwell.diary.page.ReplyOverlayView
+import com.inkwell.diary.page.dissolveConfig
 import com.inkwell.diary.recognize.MlKitRecognitionService
 import com.inkwell.diary.recognize.RecognitionOutcome
 import com.inkwell.diary.recognize.RecognitionService
@@ -115,7 +118,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         recognitionService = MlKitRecognitionService()
         notebookStore = NotebookStore(filesDir)
         renderer = PageRenderer(this)
-        renderer.setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontBold)
+        renderer.setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)
+        renderer.setInkFadeStyle(prefs.inkFadeStyle)
+        renderer.setDissolveConfig(prefs.dissolveConfig())
         pendingDebugReply = debugReplyFrom(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -159,6 +164,13 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     override fun onStop() {
+        if (::renderer.isInitialized) {
+            val cancelledActiveFade = renderer.cancelFadeAnimation()
+            if (cancelledActiveFade) {
+                promptFadeJob?.cancel()
+                promptFadeJob = null
+            }
+        }
         activeNotebook?.let { notebook ->
             lifecycleScope.launch {
                 runCatching { notebookStore.save(notebook) }
@@ -219,7 +231,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         pageView = PageCanvasView(this)
         replyOverlay = ReplyOverlayView(this).apply {
             setContentTopInset(toolbarHeight)
-            setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontBold)
+            setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)
         }
         root.addView(
             surfaceView,
@@ -433,6 +445,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         busy = true
         val message = strokeStore.snapshot(surfaceView.width, surfaceView.height)
         val strokes = message.strokes
+        if (BuildConfig.DEBUG) {
+            runCatching { DissolveLabStore.save(this, strokes) }
+        }
         captureController?.setInputEnabled(false, keepRawInkVisible = true)
         val recognitionStartedAt = SystemClock.elapsedRealtime()
         val afterCommit = lastCommitRequestedElapsedMs
@@ -592,6 +607,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     private suspend fun fadePrompt(strokes: List<InkStroke>) {
         addDebug("prompt fade started")
         captureController?.hideRawInkLayer()
+        renderer.setInkFadeStyle(prefs.inkFadeStyle)
+        renderer.setDissolveConfig(prefs.dissolveConfig())
         renderer.fadeStrokes(strokes, includeFullOpacityFrame = false)
         showFadeDisclosureOnce()
         addDebug("prompt fade done")
@@ -666,11 +683,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
     override fun onHandwritingStyleChanged() {
         val font = currentHandwritingFont()
-        renderer.setHandwritingStyle(font, prefs.handwritingFontSizeSp, prefs.handwritingFontBold)
+        renderer.setHandwritingStyle(font, prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)
         if (::replyOverlay.isInitialized) {
-            replyOverlay.setHandwritingStyle(font, prefs.handwritingFontSizeSp, prefs.handwritingFontBold)
+            replyOverlay.setHandwritingStyle(font, prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)
         }
-        val weight = if (prefs.handwritingFontBold) "bold" else "regular"
+        val weight = HandwritingFontWeight.fromValue(prefs.handwritingFontWeight).label
         addDebug("handwriting style: ${font.label}, ${prefs.handwritingFontSizeSp.toInt()}sp, $weight")
     }
 
@@ -682,6 +699,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         }
         renderTopBar()
         addDebug("toolbar log button: ${if (prefs.showToolbarLogButton) "shown" else "hidden"}")
+    }
+
+    override fun onInkFadeStyleChanged() {
+        renderer.setInkFadeStyle(prefs.inkFadeStyle)
+        addDebug("ink fade style: ${prefs.inkFadeStyle.label}")
     }
 
     override fun currentNotebookTitle(): String {
@@ -858,34 +880,56 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     override fun onBurnNotebook() {
+        burnNotebook(dissolveHistoryPage = false)
+    }
+
+    private fun burnNotebook(dissolveHistoryPage: Boolean) {
         cancelFadeDisclosure()
         promptFadeJob?.cancel()
         promptFadeJob = null
         commitTimer?.cancel()
         commitJob?.cancel()
         commitJob = null
-        busy = false
+        val shouldDissolveHistory = dissolveHistoryPage && historyOpen
+        busy = shouldDissolveHistory
         captureController?.clearRawInkLayer()
         strokeStore.clear()
         replyOverlay.clearReply()
         lifecycleScope.launch {
-            val current = activeNotebook
-            val fresh = notebookStore.burn(current?.id.orEmpty(), prefs.persona)
-            activeNotebook = fresh
-            prefs.activeNotebookId = fresh.id
-            prefs.persona = Persona.fromStoredName(fresh.personaId)
-            historyOpen = false
-            historyPages = emptyList()
-            historyPageIndex = 0
-            engine.clearHistory()
-            renderTopBar()
-            renderer.clear()
-            renderer.drawInitialHint()
-            refreshCaptureEnabled()
-            setStatus("Idle")
-            addDebug("notebook burned")
+            try {
+                if (shouldDissolveHistory) {
+                    renderer.setDissolveConfig(burnDissolveConfig())
+                    renderer.dissolveCurrentPage()
+                }
+                val current = activeNotebook
+                val fresh = notebookStore.burn(current?.id.orEmpty(), prefs.persona)
+                activeNotebook = fresh
+                prefs.activeNotebookId = fresh.id
+                prefs.persona = Persona.fromStoredName(fresh.personaId)
+                historyOpen = false
+                historyPages = emptyList()
+                historyPageIndex = 0
+                engine.clearHistory()
+                renderTopBar()
+                renderer.clear()
+                renderer.drawInitialHint()
+                refreshCaptureEnabled()
+                setStatus("Idle")
+                addDebug("notebook burned")
+            } finally {
+                busy = false
+            }
         }
     }
+
+    private fun burnDissolveConfig() = prefs.dissolveConfig().copy(
+        sweepMs = prefs.dissolveSweepMs.coerceAtMost(BURN_DISSOLVE_SWEEP_MS),
+        cellLifeMs = prefs.dissolveCellLifeMs.coerceAtMost(BURN_DISSOLVE_CELL_LIFE_MS),
+        frameMs = BURN_DISSOLVE_FRAME_MS,
+        delayJitterMs = BURN_DISSOLVE_DELAY_JITTER_MS,
+        terminalHoldMs = BURN_DISSOLVE_TERMINAL_HOLD_MS,
+        maxTotalMs = BURN_DISSOLVE_MAX_TOTAL_MS,
+    )
 
     private fun handleToolbarErase() {
         clearPage()
@@ -895,7 +939,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         AlertDialog.Builder(this)
             .setTitle("Burn this notebook?")
             .setMessage("This permanently deletes the saved notebook on this device.")
-            .setPositiveButton("Burn") { _, _ -> onBurnNotebook() }
+            .setPositiveButton("Burn") { _, _ -> burnNotebook(dissolveHistoryPage = true) }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -1068,11 +1112,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             gravity = Gravity.CENTER_VERTICAL
             includeFontPadding = false
             paperText(36f)
-            typeface = android.graphics.Typeface.create(
-                HandwritingFont.MsMadi.loadTypeface(this@MainActivity),
-                android.graphics.Typeface.BOLD,
-            )
-            paint.isFakeBoldText = true
+            typeface = HandwritingFont.DancingScript.loadTypeface(this@MainActivity, HandwritingFontWeight.Bold)
+            paint.isFakeBoldText = HandwritingFont.DancingScript.shouldFakeBold(HandwritingFontWeight.Bold)
             translationY = dp(4).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -1267,5 +1308,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         private const val DEBUG_LOG_TAG = "InkwellDebug"
         private const val FADE_DISCLOSURE = "The ink fades from the page, but the diary keeps every word. Flip back anytime."
         private const val FADE_DISCLOSURE_VISIBLE_MS = 5_000L
+        private const val BURN_DISSOLVE_SWEEP_MS = 560L
+        private const val BURN_DISSOLVE_CELL_LIFE_MS = 360L
+        private const val BURN_DISSOLVE_FRAME_MS = 70L
+        private const val BURN_DISSOLVE_DELAY_JITTER_MS = 60L
+        private const val BURN_DISSOLVE_TERMINAL_HOLD_MS = 60L
+        private const val BURN_DISSOLVE_MAX_TOTAL_MS = 1200L
     }
 }

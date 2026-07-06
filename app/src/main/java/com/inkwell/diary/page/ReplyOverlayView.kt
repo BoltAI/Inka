@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -23,7 +22,7 @@ class ReplyOverlayView(context: Context) : View(context) {
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         textSize = sp(40f)
-        typeface = HandwritingFont.default.loadTypeface(context)
+        typeface = HandwritingFont.default.loadTypeface(context, HandwritingFontWeight.default)
     }
 
     init {
@@ -67,13 +66,25 @@ class ReplyOverlayView(context: Context) : View(context) {
     }
 
     fun setHandwritingFont(font: HandwritingFont) {
-        setHandwritingStyle(font, DEFAULT_REPLY_TEXT_SIZE_SP, bold = false)
+        setHandwritingStyle(font, DEFAULT_REPLY_TEXT_SIZE_SP, HandwritingFontWeight.default)
+    }
+
+    fun setHandwritingStyle(font: HandwritingFont, sizeSp: Float, weightValue: Int) {
+        setHandwritingStyle(font, sizeSp, HandwritingFontWeight.fromValue(weightValue))
     }
 
     fun setHandwritingStyle(font: HandwritingFont, sizeSp: Float, bold: Boolean) {
-        textPaint.typeface = Typeface.create(font.loadTypeface(context), if (bold) Typeface.BOLD else Typeface.NORMAL)
+        setHandwritingStyle(
+            font = font,
+            sizeSp = sizeSp,
+            weight = if (bold) HandwritingFontWeight.Bold else HandwritingFontWeight.Regular,
+        )
+    }
+
+    fun setHandwritingStyle(font: HandwritingFont, sizeSp: Float, weight: HandwritingFontWeight) {
+        textPaint.typeface = font.loadTypeface(context, weight)
         textPaint.textSize = sp(sizeSp)
-        textPaint.isFakeBoldText = bold
+        textPaint.isFakeBoldText = font.shouldFakeBold(weight)
         invalidateReplyArea()
     }
 

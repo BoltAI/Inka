@@ -8,10 +8,10 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.InkElement
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
@@ -34,6 +34,11 @@ class PageRenderer(
     private var contentTopInsetPx: Int = 0
     private val tapSignals = Channel<Unit>(Channel.CONFLATED)
     private val onyxInkReplayRenderer = OnyxInkReplayRenderer()
+    private val steppedFadeAnimator = SteppedFadeAnimator()
+    private var dissolveFadeAnimator = DissolveFadeAnimator()
+    private var bitmapDissolveAnimator = BitmapDissolveAnimator()
+    private var inkFadeStyle = InkFadeStyle.default
+    private var activeFadeCleanup: (() -> Unit)? = null
     private val notebookPageCache = object : LinkedHashMap<PageCacheKey, Bitmap>(3, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<PageCacheKey, Bitmap>?): Boolean {
             val shouldRemove = size > MAX_CACHED_NOTEBOOK_PAGES
@@ -56,7 +61,7 @@ class PageRenderer(
     private val scriptPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         textSize = sp(38f)
-        typeface = HandwritingFont.default.loadTypeface(context)
+        typeface = HandwritingFont.default.loadTypeface(context, HandwritingFontWeight.default)
     }
     private val hintPaint = TextPaint(scriptPaint).apply {
         color = Color.rgb(70, 70, 70)
@@ -100,16 +105,45 @@ class PageRenderer(
     }
 
     fun setHandwritingFont(font: HandwritingFont) {
-        setHandwritingStyle(font, DEFAULT_REPLY_TEXT_SIZE_SP, bold = false)
+        setHandwritingStyle(font, DEFAULT_REPLY_TEXT_SIZE_SP, HandwritingFontWeight.default)
+    }
+
+    fun setInkFadeStyle(style: InkFadeStyle) {
+        inkFadeStyle = style
+    }
+
+    fun setDissolveConfig(config: DissolveConfig) {
+        dissolveFadeAnimator = DissolveFadeAnimator(config)
+        bitmapDissolveAnimator = BitmapDissolveAnimator(config)
+    }
+
+    fun cancelFadeAnimation(): Boolean {
+        val cleanup = activeFadeCleanup ?: return false
+        cleanup()
+        activeFadeCleanup = null
+        return true
+    }
+
+    fun setHandwritingStyle(font: HandwritingFont, sizeSp: Float, weightValue: Int) {
+        setHandwritingStyle(font, sizeSp, HandwritingFontWeight.fromValue(weightValue))
     }
 
     fun setHandwritingStyle(font: HandwritingFont, sizeSp: Float, bold: Boolean) {
-        val typeface = styledTypeface(font, bold)
+        setHandwritingStyle(
+            font = font,
+            sizeSp = sizeSp,
+            weight = if (bold) HandwritingFontWeight.Bold else HandwritingFontWeight.Regular,
+        )
+    }
+
+    fun setHandwritingStyle(font: HandwritingFont, sizeSp: Float, weight: HandwritingFontWeight) {
+        val typeface = font.loadTypeface(context, weight)
+        val fakeBold = font.shouldFakeBold(weight)
         scriptPaint.typeface = typeface
         scriptPaint.textSize = sp(sizeSp)
-        scriptPaint.isFakeBoldText = bold
+        scriptPaint.isFakeBoldText = fakeBold
         hintPaint.typeface = typeface
-        hintPaint.isFakeBoldText = bold
+        hintPaint.isFakeBoldText = fakeBold
         notebookPageCache.values.forEach { it.recycle() }
         notebookPageCache.clear()
     }
@@ -156,23 +190,65 @@ class PageRenderer(
     }
 
     suspend fun fadeStrokes(strokes: List<InkStroke>, includeFullOpacityFrame: Boolean = true) {
+        val b = bitmap ?: return
         val c = canvas ?: return
-        val alphas = if (includeFullOpacityFrame) {
-            listOf(255, 170, 96, 32, 0)
+        val animator = if (inkFadeStyle == InkFadeStyle.SimplyFades) {
+            steppedFadeAnimator
         } else {
-            listOf(170, 96, 32, 0)
+            dissolveFadeAnimator
         }
-        alphas.forEachIndexed { index, alpha ->
+        val target = InkFadeTarget(
+            pageBitmap = b,
+            pageCanvas = c,
+            inkPaint = inkPaint,
+            clearPage = { drawPaper() },
+            clearRect = { rect -> clearRect(rect) },
+            render = { full, dirtyRect -> render(full = full, dirtyRect = dirtyRect) },
+            drawFrame = { frame, left, top, dirtyRect ->
+                clearRect(dirtyRect)
+                c.drawBitmap(frame, left.toFloat(), top.toFloat(), bitmapPaint)
+                render(full = false, dirtyRect = dirtyRect)
+            },
+            registerCancelCleanup = { cleanup -> activeFadeCleanup = cleanup },
+        )
+        val completed = try {
+            runFadeSafely(animator, strokes, target, InkFadeOptions(includeFullOpacityFrame))
+        } finally {
+            activeFadeCleanup = null
+        }
+        if (!completed) {
             drawPaper()
-            if (alpha > 0) {
-                inkPaint.alpha = alpha
-                drawInkStrokes(c, strokes, inkPaint)
-                inkPaint.alpha = 255
-            }
-            render(full = false)
-            if (index < alphas.lastIndex) {
-                delay(STROKE_FADE_STEP_MS)
-            }
+            render(full = true)
+        }
+    }
+
+    suspend fun dissolveCurrentPage() {
+        val b = bitmap ?: return
+        val c = canvas ?: return
+        val source = b.copy(Bitmap.Config.ARGB_8888, false)
+        val target = InkFadeTarget(
+            pageBitmap = b,
+            pageCanvas = c,
+            inkPaint = inkPaint,
+            clearPage = { drawPaper() },
+            clearRect = { rect -> clearRect(rect) },
+            render = { full, dirtyRect -> render(full = full, dirtyRect = dirtyRect) },
+            drawFrame = { frame, left, top, dirtyRect ->
+                clearRect(dirtyRect)
+                c.drawBitmap(frame, left.toFloat(), top.toFloat(), bitmapPaint)
+                render(full = false, dirtyRect = dirtyRect)
+            },
+            registerCancelCleanup = { cleanup -> activeFadeCleanup = cleanup },
+        )
+        val completed = try {
+            runBitmapDissolveSafely(bitmapDissolveAnimator, source, target)
+        } finally {
+            activeFadeCleanup = null
+            source.recycle()
+        }
+        if (!completed) {
+            drawPaper()
+            render(full = true)
         }
     }
 
@@ -359,6 +435,14 @@ class PageRenderer(
         canvas?.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
     }
 
+    private fun clearRect(rect: Rect) {
+        val c = canvas ?: return
+        c.save()
+        c.clipRect(rect)
+        c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        c.restore()
+    }
+
     private fun drawNotebookElements(c: Canvas, elements: List<NotebookElement>) {
         elements.forEach { element ->
             when (element) {
@@ -528,10 +612,6 @@ class PageRenderer(
     private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
 
     private fun mm(value: Float): Float = value * context.resources.displayMetrics.xdpi / MILLIMETERS_PER_INCH
-
-    private fun styledTypeface(font: HandwritingFont, bold: Boolean): Typeface {
-        return Typeface.create(font.loadTypeface(context), if (bold) Typeface.BOLD else Typeface.NORMAL)
-    }
 
     private fun resetInkPaint() {
         inkPaint.color = INK_COLOR

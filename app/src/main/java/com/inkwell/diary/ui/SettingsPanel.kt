@@ -3,9 +3,9 @@ package com.inkwell.diary.ui
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.text.TextUtils
@@ -25,9 +25,11 @@ import com.inkwell.diary.R
 import com.inkwell.diary.brain.AnthropicResult
 import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.data.AiProvider
+import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.page.HandwritingFont
+import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.recognize.ModelDownloadOutcome
 import com.inkwell.diary.recognize.RecognitionService
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +48,7 @@ class SettingsPanel(
         fun onClearConversation()
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
+        fun onInkFadeStyleChanged()
         fun currentNotebookTitle(): String
         fun currentNotebookPersona(): Persona
         fun onNotebookTitleChanged(title: String)
@@ -57,6 +60,7 @@ class SettingsPanel(
         Home("Settings"),
         Ai("AI Settings"),
         Notebook("Notebook"),
+        Persona("Persona"),
         Recognition("Recognition Settings"),
         Writing("Writing Settings"),
         Developer("Developer"),
@@ -67,6 +71,7 @@ class SettingsPanel(
     private val languages = listOf("en-US", "es-ES", "fr-FR", "de-DE", "vi-VN")
     private val aiProviders = AiProvider.entries.toList()
     private val handwritingFonts = HandwritingFont.entries.toList()
+    private val handwritingFontWeights = HandwritingFontWeight.entries.toList()
     private val backStack = mutableListOf<SettingsScreen>()
     private lateinit var titleText: TextView
     private lateinit var contentHost: FrameLayout
@@ -179,6 +184,7 @@ class SettingsPanel(
             SettingsScreen.Home -> buildHomeScreen()
             SettingsScreen.Ai -> buildAiScreen()
             SettingsScreen.Notebook -> buildNotebookScreen()
+            SettingsScreen.Persona -> buildPersonaScreen()
             SettingsScreen.Recognition -> buildRecognitionScreen()
             SettingsScreen.Writing -> buildWritingScreen()
             SettingsScreen.Developer -> buildDeveloperScreen()
@@ -201,6 +207,7 @@ class SettingsPanel(
 
         addTopicRow(group, "AI Settings") { navigate(SettingsScreen.Ai) }
         addTopicRow(group, "Notebook") { navigate(SettingsScreen.Notebook) }
+        addTopicRow(group, "Persona") { navigate(SettingsScreen.Persona) }
         addTopicRow(group, "Recognition Settings") { navigate(SettingsScreen.Recognition) }
         addTopicRow(group, "Writing Settings") { navigate(SettingsScreen.Writing) }
         addTopicRow(group, "Developer") { navigate(SettingsScreen.Developer) }
@@ -346,6 +353,22 @@ class SettingsPanel(
             "Everything you write is stored on this device until you burn the notebook.",
         )
 
+        lateinit var fadeRow: ChoiceRowHandle
+        fadeRow = addChoiceRow(notebookGroup, "How the ink fades", prefs.inkFadeStyle.label) {
+            val styles = InkFadeStyle.entries.toList()
+            showChoiceDialog(
+                title = "How the ink fades",
+                choices = styles.map { it.label },
+                selectedIndex = styles.indexOf(prefs.inkFadeStyle).coerceAtLeast(0),
+            ) { index ->
+                val style = styles.getOrElse(index) { InkFadeStyle.default }
+                prefs.inkFadeStyle = style
+                fadeRow.valueText.text = style.label
+                callbacks.onInkFadeStyleChanged()
+                status.text = "Ink fade saved: ${style.label}."
+            }
+        }
+
         addChoiceRow(notebookGroup, "Burn this notebook", "Burn") {
             AlertDialog.Builder(context)
                 .setTitle("Burn this notebook")
@@ -359,7 +382,15 @@ class SettingsPanel(
                 .show()
         }
 
-        panel.addGap(18)
+        panel.addGap(16)
+        panel.addView(status, fullWidth())
+        panel.addGap(36)
+        return panel.parent as ScrollView
+    }
+
+    private fun buildPersonaScreen(): View {
+        val panel = scrollPanel(topPaddingDp = 12, horizontalPaddingDp = 46)
+        val status = TextView(context).paperText(16f)
         val group = groupedList()
         panel.addView(group, fullWidth())
 
@@ -479,10 +510,10 @@ class SettingsPanel(
 
         fun updatePreview() {
             val font = HandwritingFont.fromKey(prefs.handwritingFontKey)
-            val bold = prefs.handwritingFontBold
+            val weight = HandwritingFontWeight.fromValue(prefs.handwritingFontWeight)
             previewText.textSize = prefs.handwritingFontSizeSp
-            previewText.typeface = Typeface.create(font.loadTypeface(context), if (bold) Typeface.BOLD else Typeface.NORMAL)
-            previewText.paint.isFakeBoldText = bold
+            previewText.typeface = font.loadTypeface(context, weight)
+            previewText.paint.isFakeBoldText = font.shouldFakeBold(weight)
         }
 
         delayRow = addChoiceRow(group, "Commit Delay", formatCommitDelay(prefs.commitDelayMillis)) {
@@ -532,20 +563,21 @@ class SettingsPanel(
                 status.text = "Font size saved: ${formatFontSize(prefs.handwritingFontSizeSp)}."
             }
         }
-        weightRow = addChoiceRow(group, "Font Weight", fontWeightLabel(prefs.handwritingFontBold)) {
-            val choices = listOf(false, true)
+        weightRow = addChoiceRow(group, "Font Weight", fontWeightLabel(prefs.handwritingFontWeight)) {
             showChoiceDialog(
                 title = "Font Weight",
-                choices = choices.map { fontWeightLabel(it) },
-                selectedIndex = choices.indexOf(prefs.handwritingFontBold).coerceAtLeast(0),
+                choices = handwritingFontWeights.map { it.label },
+                selectedIndex = handwritingFontWeights.indexOf(
+                    HandwritingFontWeight.fromValue(prefs.handwritingFontWeight),
+                ).coerceAtLeast(0),
             ) { index ->
-                val bold = choices.getOrElse(index) { Prefs.DEFAULT_HANDWRITING_FONT_BOLD }
-                if (prefs.handwritingFontBold != bold) {
-                    prefs.handwritingFontBold = bold
-                    weightRow.valueText.text = fontWeightLabel(bold)
+                val weight = handwritingFontWeights.getOrElse(index) { HandwritingFontWeight.default }
+                if (prefs.handwritingFontWeight != weight.value) {
+                    prefs.handwritingFontWeight = weight.value
+                    weightRow.valueText.text = weight.label
                     updatePreview()
                     callbacks.onHandwritingStyleChanged()
-                    status.text = "Font weight saved: ${fontWeightLabel(bold)}."
+                    status.text = "Font weight saved: ${weight.label}."
                 }
             }
         }
@@ -604,6 +636,11 @@ class SettingsPanel(
             prefs.showToolbarLogButton = checked
             callbacks.onToolbarSettingsChanged()
         }
+        if (BuildConfig.DEBUG) {
+            addChoiceRow(group, "Dissolve Lab", "Open") {
+                context.startActivity(Intent(context, DissolveLabActivity::class.java))
+            }
+        }
 
         panel.addGap(36)
         return panel.parent as ScrollView
@@ -633,8 +670,8 @@ class SettingsPanel(
         return "${sizeSp.toInt()} sp"
     }
 
-    private fun fontWeightLabel(bold: Boolean): String {
-        return if (bold) "Bold" else "Regular"
+    private fun fontWeightLabel(weightValue: Int): String {
+        return HandwritingFontWeight.fromValue(weightValue).label
     }
 
     private fun scrollPanel(

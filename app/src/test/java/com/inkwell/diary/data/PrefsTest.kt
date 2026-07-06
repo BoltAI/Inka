@@ -1,6 +1,8 @@
 package com.inkwell.diary.data
 
 import com.inkwell.diary.page.HandwritingFont
+import com.inkwell.diary.page.HandwritingFontWeight
+import com.inkwell.diary.page.dissolveConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -31,15 +33,15 @@ class PrefsTest {
     fun `handwriting style preferences persist and clamp size`() {
         val prefs = Prefs(RuntimeEnvironment.getApplication())
 
-        assertEquals(HandwritingFont.MsMadi.key, prefs.handwritingFontKey)
+        assertEquals(HandwritingFont.DancingScript.key, prefs.handwritingFontKey)
         assertEquals(Prefs.DEFAULT_HANDWRITING_FONT_SIZE_SP, prefs.handwritingFontSizeSp, 0.01f)
-        assertFalse(prefs.handwritingFontBold)
+        assertEquals(HandwritingFontWeight.Regular.value, prefs.handwritingFontWeight)
 
         prefs.handwritingFontSizeSp = 72f
-        prefs.handwritingFontBold = true
+        prefs.handwritingFontWeight = HandwritingFontWeight.Medium.value
 
         assertEquals(Prefs.MAX_HANDWRITING_FONT_SIZE_SP, prefs.handwritingFontSizeSp, 0.01f)
-        assertTrue(prefs.handwritingFontBold)
+        assertEquals(HandwritingFontWeight.Medium.value, prefs.handwritingFontWeight)
 
         prefs.handwritingFontSizeSp = 10f
 
@@ -66,6 +68,87 @@ class PrefsTest {
         prefs.showToolbarLogButton = true
 
         assertTrue(Prefs(RuntimeEnvironment.getApplication()).showToolbarLogButton)
+    }
+
+    @Test
+    fun `ink fade style defaults to dust and persists simple fade fallback`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertEquals(InkFadeStyle.TurnsToDust, prefs.inkFadeStyle)
+
+        prefs.inkFadeStyle = InkFadeStyle.SimplyFades
+
+        assertEquals(InkFadeStyle.SimplyFades, Prefs(RuntimeEnvironment.getApplication()).inkFadeStyle)
+    }
+
+    @Test
+    fun `dissolve tuning defaults persist clamp bounded values and reset`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertEquals(Prefs.DEFAULT_DISSOLVE_CELL_SIZE_PX, prefs.dissolveCellSizePx)
+        assertEquals(Prefs.DEFAULT_DISSOLVE_SWEEP_MS, prefs.dissolveSweepMs)
+        assertEquals(Prefs.DEFAULT_DISSOLVE_CELL_LIFE_MS, prefs.dissolveCellLifeMs)
+        assertEquals(Prefs.DEFAULT_DISSOLVE_WIND_SHEAR_PX, prefs.dissolveWindShearPx)
+        assertEquals(Prefs.DEFAULT_DISSOLVE_DRIFT_MAX_PX, prefs.dissolveDriftMaxPx)
+
+        prefs.dissolveCellSizePx = 99
+        prefs.dissolveSweepMs = 99_000L
+        prefs.dissolveCellLifeMs = 99_000L
+        prefs.dissolveWindShearPx = 99_000
+        prefs.dissolveDriftMaxPx = 99_000
+
+        val persisted = Prefs(RuntimeEnvironment.getApplication())
+        assertEquals(Prefs.MAX_DISSOLVE_CELL_SIZE_PX, persisted.dissolveCellSizePx)
+        assertEquals(Prefs.MAX_DISSOLVE_SWEEP_MS, persisted.dissolveSweepMs)
+        assertEquals(Prefs.MAX_DISSOLVE_CELL_LIFE_MS, persisted.dissolveCellLifeMs)
+        assertEquals(99_000, persisted.dissolveWindShearPx)
+        assertEquals(Prefs.MAX_DISSOLVE_DRIFT_MAX_PX, persisted.dissolveDriftMaxPx)
+
+        persisted.resetDissolveConfig()
+
+        assertEquals(Prefs.DEFAULT_DISSOLVE_CELL_SIZE_PX, Prefs(RuntimeEnvironment.getApplication()).dissolveCellSizePx)
+    }
+
+    @Test
+    fun `dissolve config defaults match dust lab baseline`() {
+        val config = Prefs(RuntimeEnvironment.getApplication()).dissolveConfig()
+
+        assertEquals(8, config.cellSizePx)
+        assertEquals(1100L, config.sweepMs)
+        assertEquals(700L, config.cellLifeMs)
+        assertEquals(300f, config.windShearPx, 0.01f)
+    }
+
+    @Test
+    fun `legacy handwriting bold preference migrates to bold weight`() {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("inkwell_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("handwriting_font_bold", true)
+            .commit()
+
+        val prefs = Prefs(app)
+
+        assertEquals(HandwritingFontWeight.Bold.value, prefs.handwritingFontWeight)
+    }
+
+    @Test
+    fun `old auto saved dissolve defaults migrate to new baseline`() {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("inkwell_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putInt("dissolve_cell_size_px", 4)
+            .putLong("dissolve_sweep_ms", 1500L)
+            .putLong("dissolve_cell_life_ms", 950L)
+            .putInt("dissolve_wind_shear_px", 200)
+            .commit()
+
+        val prefs = Prefs(app)
+
+        assertEquals(8, prefs.dissolveCellSizePx)
+        assertEquals(1100L, prefs.dissolveSweepMs)
+        assertEquals(700L, prefs.dissolveCellLifeMs)
+        assertEquals(300, prefs.dissolveWindShearPx)
     }
 
     @Test

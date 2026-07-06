@@ -1,5 +1,8 @@
 package com.inkwell.diary.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,6 +88,36 @@ class NotebookStoreTest {
         val ink = loaded.exchanges.single().ink!!
         assertEquals(10_000, ink.strokes.single().points.size)
         assertEquals(9999f, ink.strokes.single().points.last().x)
+    }
+
+    @Test
+    fun `concurrent saves do not collide on temp files`() = runTest {
+        val jobs = (0 until 24).map { index ->
+            launch(Dispatchers.Default) {
+                val store = NotebookStore(temporaryFolder.root) { index.toLong() }
+                val notebook = Notebook(
+                    id = DEFAULT_NOTEBOOK_ID,
+                    title = DEFAULT_NOTEBOOK_TITLE,
+                    personaId = Persona.Whisper.name,
+                    createdAt = 1L,
+                    updatedAt = index.toLong(),
+                    exchanges = listOf(exchange(index, "question $index", "answer $index")),
+                )
+                store.save(notebook)
+            }
+        }
+        jobs.joinAll()
+
+        val store = NotebookStore(temporaryFolder.root)
+        val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.Whisper) as NotebookLoadResult.Ready).notebook
+        val leftovers = File(temporaryFolder.root, "notebooks").listFiles { file ->
+            file.name.endsWith(".tmp")
+        }.orEmpty()
+
+        assertEquals(DEFAULT_NOTEBOOK_ID, loaded.id)
+        assertEquals(1, loaded.exchanges.size)
+        assertTrue(loaded.updatedAt in 0L..23L)
+        assertTrue(leftovers.isEmpty())
     }
 
     @Test

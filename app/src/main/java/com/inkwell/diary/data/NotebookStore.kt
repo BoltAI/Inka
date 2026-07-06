@@ -53,11 +53,17 @@ class NotebookStore(
     suspend fun save(notebook: Notebook) = withContext(Dispatchers.IO) {
         notebookDir.mkdirs()
         val destination = fileFor(notebook.id)
-        val tmp = File(notebookDir, "${notebook.id}.json.tmp")
-        tmp.writeText(json.encodeToString(notebook))
-        if (!tmp.renameTo(destination)) {
-            tmp.copyTo(destination, overwrite = true)
-            tmp.delete()
+        val safeId = notebook.id.ifBlank { DEFAULT_NOTEBOOK_ID }
+        val tmp = File.createTempFile("$safeId.", ".json.tmp", notebookDir)
+        try {
+            tmp.writeText(json.encodeToString(notebook))
+            if (!tmp.renameTo(destination)) {
+                tmp.copyTo(destination, overwrite = true)
+            }
+        } finally {
+            if (tmp.exists()) {
+                tmp.delete()
+            }
         }
     }
 

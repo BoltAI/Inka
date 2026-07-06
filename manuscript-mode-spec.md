@@ -72,7 +72,11 @@ Write policy:
 
 - All personas use the v1 Fade live-writing behavior.
 - Live pen strokes must stay on the BOOX raw drawing layer until the prompt fade begins. Do not replace the visible live ink with replayed bitmap strokes before fade.
-- On commit: recognize -> persist exchange -> fade prompt -> stream/reveal reply.
+- On commit: recognize -> persist exchange -> dissolve/fade prompt -> stream/reveal reply.
+- The default committed-ink transition is `Turns to dust`: a longer left-to-right stochastic dissolve where ink particles get carried mostly rightward by wind, lift slightly upward, leave short ash streaks, then land on a final full refresh. The fallback `Simply fades` keeps the v1 stepped-opacity fade.
+- The dissolve must preserve the illusion that wind peels ink off the page: the app first renders a full original-ink handoff frame, cells not yet reached by the sweep stay in their original positions, and only active cells move away from their original ink pixels.
+- The wind dissolve parameters live in `DissolveConfig`; keep that data shape platform-neutral so a future iOS build can mirror the same animation curve and timings.
+- The dust dissolve applies only to the user's committed ink. Reply fade-on-pen-down, disclosure text, and hint fades stay as quick stepped fades.
 - Missing API keys, provider failures, network failures, and unrecoverable errors are modal warnings. They are not written inline on the paper.
 - The toolbar eraser clears only the current live page/draft state. Burning the persisted notebook is a Settings action with confirmation.
 
@@ -102,14 +106,19 @@ Before each request, rebuild provider history from the active notebook:
 
 ## Settings
 
-Top-level Settings contains a `Notebook` row.
+Top-level Settings contains `Notebook` and `Persona` rows.
 
 Notebook detail screen:
 
 - Title row.
-- Persona picker with descriptions and radio buttons.
+- `How the ink fades` row: `Turns to dust` by default, with `Simply fades` as the fallback for panels or firmware that smear too much.
 - Burn this notebook row with confirmation.
 - The sentence: `Everything you write is stored on this device until you burn the notebook.`
+
+Persona detail screen:
+
+- Persona picker with descriptions and radio buttons.
+- Custom prompt row appears only when `Custom` is selected.
 
 There is no Writing Mode row and no per-persona mode override.
 
