@@ -139,7 +139,7 @@ class MainActivitySmokeTest {
     }
 
     @Test
-    fun generalSettingsExposeReplyStyleChoice() {
+    fun developerSettingsExposeAiAnswerModeChoice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = Prefs(context)
@@ -165,15 +165,15 @@ class MainActivitySmokeTest {
             assertTrue(
                 "Expected Settings home to render",
                 waitUntil(timeoutMs = 10_000L) {
-                    activity?.containsVisibleText("General") == true
+                    activity?.containsVisibleText("Developer") == true
                 },
             )
-            assertTrue(activity.performClickOnVisibleText("General"))
+            assertTrue(activity.performClickOnVisibleText("Developer"))
             assertTrue(
-                "Expected General reply style row to render",
+                "Expected Developer AI answer mode row to render",
                 waitUntil(timeoutMs = 10_000L) {
-                    activity?.containsVisibleText("The diary replies by") == true &&
-                        activity?.containsVisibleText("Writing") == true
+                    activity?.containsVisibleText("AI answer mode") == true &&
+                        activity?.containsVisibleText("Text only") == true
                 },
             )
         } finally {

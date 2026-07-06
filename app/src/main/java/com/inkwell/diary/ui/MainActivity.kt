@@ -1723,7 +1723,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         private const val DEBUG_REPLY_ACTION = "com.inkwell.diary.DEBUG_REPLY"
         private const val DEBUG_REPLY_EXTRA = "reply"
         private const val DEBUG_REPLY_FALLBACK = "This is a handwriting reply test."
-        private const val DEBUG_LOG_TAG = "InkwellDebug"
+        private const val DEBUG_LOG_TAG = "InkaDebug"
         private const val FADE_DISCLOSURE = "The ink fades from the page, but the diary keeps every word. Flip back anytime."
         private const val DRAWING_MODE_HINT = "Draw or write, then tap twice when it's my turn."
         private const val FADE_DISCLOSURE_VISIBLE_MS = 5_000L

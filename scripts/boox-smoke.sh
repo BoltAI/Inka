@@ -38,7 +38,7 @@ run_adb shell am force-stop "${APP_ID}"
 run_adb logcat -c
 run_adb shell am start -n "${APP_ID}/.ui.MainActivity" >/dev/null
 sleep 3
-run_adb logcat -d -s AndroidRuntime InkwellDebug InkCaptureController OnyxInkReplay | tee "${LAUNCH_LOG}"
+run_adb logcat -d -s AndroidRuntime InkaDebug InkCaptureController OnyxInkReplay | tee "${LAUNCH_LOG}"
 
 if grep -q "FATAL EXCEPTION" "${LAUNCH_LOG}"; then
   echo "BOOX launch smoke failed: AndroidRuntime fatal exception found in ${LAUNCH_LOG}" >&2
