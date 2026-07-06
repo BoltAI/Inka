@@ -1,6 +1,6 @@
-# Inkwell
+# Inka
 
-Inkwell is a sideloaded Android app for Boox e-ink tablets. It turns a blank page into a private handwritten diary that answers in script, one word at a time.
+Inka is a sideloaded Android app for Boox e-ink tablets. It turns a blank page into a private handwritten diary that answers in script, one word at a time.
 
 ## Status
 
@@ -27,12 +27,12 @@ app/build/outputs/apk/release/app-release.apk
 1. Build the release APK.
 2. Copy `app-release.apk` to the Boox tablet.
 3. Open the file on the Boox device and allow installation from local files if prompted.
-4. Launch Inkwell.
+4. Launch Inka.
 5. Choose Anthropic, OpenAI, or Groq during onboarding and paste that provider's API key.
 6. Download the English handwriting model.
 7. Write on the blank page and pause for the configured commit delay.
 
-Sketchbook Drawing replies are configured in Settings -> General -> The diary replies by. Drawing mode currently requires Anthropic because it uses the Anthropic Messages vision/tool-call protocol.
+Sketchbook Drawing replies are configured in Settings -> Developer -> AI answer mode. Drawing mode currently supports Anthropic and OpenAI.
 
 ## Boox Smoke Test
 

@@ -18,6 +18,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Inkwell"
+rootProject.name = "Inka"
 include(":app")
-

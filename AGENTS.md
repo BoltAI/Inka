@@ -1,6 +1,6 @@
 ## Project Scope
 
-- This repository builds Inkwell, a sideloaded Android app for Boox e-ink tablets.
+- This repository builds Inka, a sideloaded Android app for Boox e-ink tablets.
 - Implement the product from `riddle-spec.md` as a native Kotlin Android app using classic Views, not Compose.
 - The current product model is one active notebook that is always persisted. Do not reintroduce separate Fade/Manuscript modes, per-persona notebook files, or per-persona mode defaults; fade is a live-page presentation behavior only.
 - Keep app strings neutral. Do not add Harry Potter references to user-facing copy, marketing copy, package names, or release text.

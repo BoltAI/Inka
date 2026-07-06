@@ -68,7 +68,7 @@ class SettingsPanel(
         Writing("Writing Settings"),
         Developer("Developer"),
         Conversation("Conversation Data"),
-        About("About Inkwell"),
+        About("About Inka"),
     }
 
     private val languages = listOf("en-US", "es-ES", "fr-FR", "de-DE", "vi-VN")
@@ -214,8 +214,8 @@ class SettingsPanel(
         addTopicRow(group, "Recognition Settings") { navigate(SettingsScreen.Recognition) }
         addTopicRow(group, "Writing Settings") { navigate(SettingsScreen.Writing) }
         addTopicRow(group, "Developer") { navigate(SettingsScreen.Developer) }
-        addTopicRow(group, "About Inkwell") { navigate(SettingsScreen.About) }
-        addValueRow(group, "Inkwell Version", BuildConfig.VERSION_NAME)
+        addTopicRow(group, "About Inka") { navigate(SettingsScreen.About) }
+        addValueRow(group, "Inka Version", BuildConfig.VERSION_NAME)
 
         return panel.parent as ScrollView
     }
