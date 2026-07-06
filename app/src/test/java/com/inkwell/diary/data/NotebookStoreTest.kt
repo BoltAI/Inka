@@ -17,7 +17,7 @@ class NotebookStoreTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
-    fun `round trips the active v2 notebook`() = runTest {
+    fun `round trips the active v3 notebook`() = runTest {
         val store = NotebookStore(temporaryFolder.root) { 1000L }
         val notebook = (store.loadOrCreateActive("", Persona.Muse) as NotebookLoadResult.Ready).notebook
         val saved = notebook.withExchange(
@@ -56,11 +56,46 @@ class NotebookStoreTest {
 
         val file = store.fileFor(DEFAULT_NOTEBOOK_ID)
         assertTrue(file.exists())
-        assertTrue(file.readText().contains("\"schemaVersion\": 2"))
+        assertTrue(file.readText().contains("\"schemaVersion\": 3"))
         assertTrue(file.readText().contains("\"tiltX\": 12"))
 
         val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.Whisper) as NotebookLoadResult.Ready).notebook
         assertEquals(saved, loaded)
+    }
+
+    @Test
+    fun `migrates v2 notebooks to schema v3 without damaging them`() {
+        val store = NotebookStore(temporaryFolder.root) { 1200L }
+        val file = store.fileFor(DEFAULT_NOTEBOOK_ID)
+        file.parentFile?.mkdirs()
+        file.writeText(
+            """
+            {
+              "id": "default",
+              "title": "Inka's Diary",
+              "personaId": "Whisper",
+              "createdAt": 1,
+              "updatedAt": 2,
+              "schemaVersion": 2,
+              "exchanges": [
+                {
+                  "id": "exchange-10",
+                  "committedAt": 10,
+                  "ink": { "strokes": [], "recognizedText": "draw a cat" },
+                  "reply": { "text": "A cat arrived.", "personaId": "Whisper", "createdAt": 11 }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val loaded = (store.load(DEFAULT_NOTEBOOK_ID, Persona.Whisper) as NotebookLoadResult.Ready).notebook
+
+        assertEquals(3, loaded.schemaVersion)
+        assertEquals("draw a cat", loaded.exchanges.single().ink?.recognizedText)
+        assertEquals("A cat arrived.", loaded.exchanges.single().reply?.text)
+        assertTrue(file.exists())
+        assertFalse(File(file.parentFile, "${file.name}.damaged").exists())
     }
 
     @Test

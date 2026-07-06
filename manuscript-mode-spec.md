@@ -24,10 +24,10 @@ Default notebook:
 ```text
 id: default
 title: Inka's Diary
-schemaVersion: 2
+schemaVersion: 3
 ```
 
-Schema v2:
+Schema v3:
 
 ```kotlin
 Notebook {
@@ -43,6 +43,7 @@ Notebook {
 Exchange {
   id,
   committedAt,
+  canvasId: String?,
   ink: NotebookInk?,
   reply: NotebookReply?
 }
@@ -53,9 +54,14 @@ NotebookInk {
 }
 
 NotebookReply {
-  text,
+  text?,
+  sketch: NotebookSketch?,
   personaId,
   createdAt
+}
+
+NotebookSketch {
+  strokes: List<InkStroke>
 }
 ```
 
@@ -66,11 +72,12 @@ Write policy:
 - Save on `onStop` as a defensive flush.
 - Do not block the ink thread; store writes run off the main path.
 - Unsupported or corrupt notebook files are renamed to `{id}.json.damaged`, then a fresh default notebook is created.
-- If no active notebook id exists, migrate the latest v1 persona-page notebook into schema v2 and leave all old files untouched.
+- If no active notebook id exists, migrate the latest v1 persona-page notebook into schema v3 and leave all old files untouched.
+- Existing schema v2 one-notebook files migrate trivially to schema v3.
 
 ## Live Page Behavior
 
-- All personas use the v1 Fade live-writing behavior.
+- The default reply style is `Writing`: all personas use the v1 Fade live-writing behavior.
 - Live pen strokes must stay on the BOOX raw drawing layer until the prompt fade begins. Do not replace the visible live ink with replayed bitmap strokes before fade.
 - On commit: recognize -> persist exchange -> dissolve/fade prompt -> stream/reveal reply.
 - The default committed-ink transition is `Turns to dust`: a longer left-to-right stochastic dissolve where ink particles get carried mostly rightward by wind, lift slightly upward, leave short ash streaks, then land on a final full refresh. The fallback `Simply fades` keeps the v1 stepped-opacity fade.
@@ -79,6 +86,18 @@ Write policy:
 - The dust dissolve applies only to the user's committed ink. Reply fade-on-pen-down, disclosure text, and hint fades stay as quick stepped fades.
 - Missing API keys, provider failures, network failures, and unrecoverable errors are modal warnings. They are not written inline on the paper.
 - The toolbar eraser clears only the current live page/draft state. Burning the persisted notebook is a Settings action with confirmation.
+
+## Sketchbook Reply Style
+
+`General > The diary replies by > Drawing` turns the diary into a shared sketch canvas.
+
+- Drawing mode skips ML Kit recognition and skips the fade animator. User ink remains on the canvas.
+- The app snapshots its own page bitmap, downscales it to a max 768 px long edge, converts it to grayscale PNG, and sends it to Anthropic with the forced `draw` tool.
+- The model returns constrained SVG path data. The app accepts only `M/m L/l C/c Q/q Z/z`, flattens curves to polylines, scales image-space points back to page space, and renders them as diary-owned sketch strokes.
+- AI sketch strokes reveal in payload order with short gaps between strokes. Optional captions reveal after the drawing.
+- Drawing mode uses a separate idle commit delay, default 6.0s. Double-tap is the primary commit gesture.
+- A left swipe or right-edge tap starts a fresh blank canvas. Previous canvases remain in History.
+- Drawing mode currently requires Anthropic because OpenAI/Groq-compatible transports do not implement the Anthropic Messages image/tool protocol.
 
 ## History View
 
@@ -89,6 +108,7 @@ History is a separate read-only screen generated from `Notebook.exchanges`.
 - Back is the explicit way to return to the live writing page. Swiping past the last history page must not silently leave History.
 - `Burn notebook` shows a destructive confirmation before deleting the active notebook.
 - Render historical ink/replies with the saved-ink renderer.
+- Exchanges with the same `canvasId` composite onto one History page in commit order.
 - Split long replies across rendered history pages when needed.
 - Swipe/tap forward and backward through history pages.
 - Pen input in history is rejected and should show: `Return to the page to write.`
@@ -106,11 +126,13 @@ Before each request, rebuild provider history from the active notebook:
 
 ## Settings
 
-Top-level Settings contains `Notebook` and `Persona` rows.
+Top-level Settings contains `General` and `Persona` rows.
 
-Notebook detail screen:
+General detail screen:
 
 - Title row.
+- Persona row.
+- `The diary replies by` row: `Writing` by default, with `Drawing` for Sketchbook replies.
 - `How the ink fades` row: `Turns to dust` by default, with `Simply fades` as the fallback for panels or firmware that smear too much.
 - Burn this notebook row with confirmation.
 - The sentence: `Everything you write is stored on this device until you burn the notebook.`
@@ -120,16 +142,17 @@ Persona detail screen:
 - Persona picker with descriptions and radio buttons.
 - Custom prompt row appears only when `Custom` is selected.
 
-There is no Writing Mode row and no per-persona mode override.
+There is no per-persona mode override.
 
 ## Verification
 
 Automated coverage should include:
 
-- Schema v2 round trip, 10k-point strokes, and damaged-file recovery.
-- v1 migration into schema v2 without deleting old files.
+- Schema v3 round trip, 10k-point strokes, schema v2 migration, and damaged-file recovery.
+- v1 migration into schema v3 without deleting old files.
 - API history ordering, 20-turn cap, and unanswered exchanges.
 - History page projection and long-reply splitting.
+- SVG path parsing/flattening/scaling, tool-payload fallback, and same-canvas History composition.
 - Prefs for active notebook id and one-time fade disclosure.
 - Android smoke: onboarding launch and dense active notebook launch.
 

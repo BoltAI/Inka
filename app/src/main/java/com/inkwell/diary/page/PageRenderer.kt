@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.Rect
@@ -11,6 +13,8 @@ import android.graphics.RectF
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.util.Base64
+import com.inkwell.diary.brain.PageSnapshot
 import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.InkElement
 import com.inkwell.diary.data.InkStroke
@@ -18,9 +22,12 @@ import com.inkwell.diary.data.Notebook
 import com.inkwell.diary.data.NotebookElement
 import com.inkwell.diary.data.NotebookPage
 import com.inkwell.diary.data.ReplyElement
+import com.inkwell.diary.data.SketchElement
 import com.inkwell.diary.data.drawInkStrokes
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlin.math.min
 import kotlin.math.max
 
 class PageRenderer(
@@ -56,6 +63,10 @@ class PageRenderer(
         strokeWidth = mm(REPLAY_STROKE_WIDTH_MM)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+    }
+    private val replyInkPaint = Paint(inkPaint).apply {
+        color = REPLY_INK_COLOR
+        strokeWidth = mm(REPLY_STROKE_WIDTH_MM)
     }
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val scriptPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -312,6 +323,96 @@ class PageRenderer(
         render(full = false, dirtyRect = dirtyRect?.toPaddedRect())
     }
 
+    fun showNotebookElements(elements: List<NotebookElement>, fullRefresh: Boolean = true) {
+        val c = canvas ?: return
+        lastReplyBitmap?.recycle()
+        lastReplyBitmap = null
+        drawPaper()
+        drawNotebookElements(c, elements)
+        render(full = fullRefresh)
+    }
+
+    fun snapshotForVision(
+        elements: List<NotebookElement>,
+        draftStrokes: List<InkStroke>,
+        maxLongEdge: Int = VISION_MAX_LONG_EDGE_PX,
+    ): PageSnapshot? {
+        val source = bitmap ?: return null
+        val sourceBitmap = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        val sourceCanvas = Canvas(sourceBitmap)
+        sourceCanvas.drawColor(Color.WHITE)
+        drawNotebookElements(sourceCanvas, elements)
+        resetInkPaint()
+        drawNotebookInkStrokes(sourceCanvas, draftStrokes)
+
+        val longEdge = max(sourceBitmap.width, sourceBitmap.height).coerceAtLeast(1)
+        val scale = min(1f, maxLongEdge.toFloat() / longEdge.toFloat())
+        val scaledWidth = max(1, (sourceBitmap.width * scale).toInt())
+        val scaledHeight = max(1, (sourceBitmap.height * scale).toInt())
+        val scaled = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
+        val grayscalePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(
+                ColorMatrix().apply { setSaturation(0f) },
+            )
+        }
+        Canvas(scaled).drawBitmap(
+            sourceBitmap,
+            null,
+            Rect(0, 0, scaledWidth, scaledHeight),
+            grayscalePaint,
+        )
+        val bytes = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.PNG, 100, bytes)
+        val encoded = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+        scaled.recycle()
+        sourceBitmap.recycle()
+        return PageSnapshot(
+            pngBase64 = encoded,
+            width = scaledWidth,
+            height = scaledHeight,
+            pageWidth = source.width,
+            pageHeight = source.height,
+        )
+    }
+
+    suspend fun revealSketchStrokes(strokes: List<InkStroke>, caption: String) {
+        val drawn = mutableListOf<InkStroke>()
+        strokes.forEachIndexed { index, stroke ->
+            drawn.add(stroke)
+            appendSketchStroke(stroke)
+            if (index < strokes.lastIndex) {
+                delay(REPLY_STROKE_GAP_MS)
+            }
+        }
+        if (caption.isNotBlank()) {
+            appendSketchCaption(caption, drawn)
+        }
+        endSketchReply(fullRefresh = true)
+    }
+
+    fun beginSketchReply() {
+        resetReplyInkPaint()
+    }
+
+    fun appendSketchStroke(stroke: InkStroke) {
+        val c = canvas ?: return
+        resetReplyInkPaint()
+        drawReplyInkStrokes(c, listOf(stroke))
+        render(full = false, dirtyRect = strokesBounds(listOf(stroke))?.toPaddedRect())
+    }
+
+    suspend fun appendSketchCaption(caption: String, strokes: List<InkStroke>) {
+        if (caption.isNotBlank()) {
+            revealSketchCaption(caption, strokes)
+        }
+    }
+
+    fun endSketchReply(fullRefresh: Boolean = false) {
+        if (fullRefresh) {
+            render(full = true)
+        }
+    }
+
     fun renderNotebookPage(
         page: NotebookPage,
         pageIndex: Int,
@@ -360,18 +461,22 @@ class PageRenderer(
 
     fun historyPagesFor(notebook: Notebook): List<NotebookPage> {
         val pages = mutableListOf<NotebookPage>()
-        notebook.exchanges.sortedBy { it.committedAt }.forEach { exchange ->
-            val baseElements = buildList {
-                exchange.ink?.let { ink ->
-                    add(
-                        InkElement(
-                            strokes = ink.strokes,
-                            committedAt = exchange.committedAt,
-                            recognizedText = ink.recognizedText,
-                        ),
-                    )
-                }
+        val sorted = notebook.exchanges.sortedBy { it.committedAt }
+        val handledCanvasIds = mutableSetOf<String>()
+        sorted.forEach { exchange ->
+            val canvasId = exchange.canvasId
+            if (canvasId != null && handledCanvasIds.add(canvasId)) {
+                pages.add(
+                    NotebookPage(
+                        index = pages.size,
+                        elements = sorted.filter { it.canvasId == canvasId }.flatMap { it.notebookElements(notebook.personaId) },
+                    ),
+                )
+                return@forEach
+            } else if (canvasId != null) {
+                return@forEach
             }
+            val baseElements = exchange.notebookElements(notebook.personaId).filterIsInstance<InkElement>()
             val reply = exchange.reply
             val replyText = reply?.text.orEmpty()
             if (replyText.isBlank()) {
@@ -453,6 +558,10 @@ class PageRenderer(
                 is ReplyElement -> {
                     drawNotebookReply(c, element.text, nextReplyTop(elements.takeWhile { it !== element }))
                 }
+                is SketchElement -> {
+                    resetReplyInkPaint()
+                    drawReplyInkStrokes(c, element.strokes)
+                }
             }
         }
     }
@@ -468,6 +577,10 @@ class PageRenderer(
                 is ReplyElement -> {
                     val layout = textLayout(element.text)
                     cursor += layout.height + dp(REPLY_AFTER_REPLY_GAP_DP)
+                }
+                is SketchElement -> {
+                    val bottom = strokesBounds(element.strokes)?.bottom ?: cursor
+                    cursor = max(cursor, bottom + dp(REPLY_AFTER_INK_GAP_DP))
                 }
             }
         }
@@ -514,6 +627,35 @@ class PageRenderer(
         if (!onyxInkReplayRenderer.draw(c, strokes, inkPaint)) {
             drawInkStrokes(c, strokes, inkPaint)
         }
+    }
+
+    private fun drawReplyInkStrokes(c: Canvas, strokes: List<InkStroke>) {
+        if (strokes.isEmpty()) return
+        drawInkStrokes(c, strokes, replyInkPaint)
+    }
+
+    private suspend fun revealSketchCaption(caption: String, strokes: List<InkStroke>) {
+        val c = canvas ?: return
+        val words = caption.trim().split(Regex("""\s+""")).filter { it.isNotBlank() }
+        if (words.isEmpty()) return
+        val top = ((strokesBounds(strokes)?.bottom ?: replyTop().toFloat()) + dp(REPLY_AFTER_INK_GAP_DP))
+            .coerceAtMost(notebookContentBottom().toFloat())
+        val baseline = top + scriptPaint.textSize
+        var text = ""
+        words.forEachIndexed { index, word ->
+            text = if (text.isBlank()) word else "$text $word"
+            clearCaptionBand(top)
+            scriptPaint.color = Color.rgb(70, 70, 70)
+            c.drawText(text, margin().toFloat(), baseline, scriptPaint)
+            scriptPaint.color = Color.BLACK
+            render(full = false)
+            if (index < words.lastIndex) delay(CAPTION_WORD_GAP_MS)
+        }
+    }
+
+    private fun clearCaptionBand(top: Float) {
+        val b = bitmap ?: return
+        clearRect(Rect(0, top.toInt(), b.width, (top + scriptPaint.textSize * 1.8f).toInt()))
     }
 
     private fun textLayout(text: String): StaticLayout {
@@ -618,10 +760,17 @@ class PageRenderer(
         inkPaint.alpha = 255
     }
 
+    private fun resetReplyInkPaint() {
+        replyInkPaint.color = REPLY_INK_COLOR
+        replyInkPaint.alpha = 255
+    }
+
     companion object {
         private const val MILLIMETERS_PER_INCH = 25.4f
         private const val REPLAY_STROKE_WIDTH_MM = 1.0f
+        private const val REPLY_STROKE_WIDTH_MM = 0.9f
         private const val MAX_CACHED_NOTEBOOK_PAGES = 3
+        private const val VISION_MAX_LONG_EDGE_PX = 768
         private const val DEFAULT_REPLY_TEXT_SIZE_SP = 38f
         private const val REPLY_TOP_EXTRA_DP = 24
         private const val MANUSCRIPT_TOP_EXTRA_DP = 20
@@ -629,7 +778,10 @@ class PageRenderer(
         private const val REPLY_AFTER_INK_GAP_DP = 22
         private const val REPLY_AFTER_REPLY_GAP_DP = 26
         private const val INK_COLOR = -0x1000000
+        private val REPLY_INK_COLOR = Color.rgb(40, 84, 160)
         private const val STROKE_FADE_STEP_MS = 125L
+        private const val REPLY_STROKE_GAP_MS = 150L
+        private const val CAPTION_WORD_GAP_MS = 80L
         private const val FORCED_REPLY_CHUNK_CHARS = 120
     }
 }
@@ -638,3 +790,35 @@ private data class PageCacheKey(
     val pageIndex: Int,
     val pageHash: Int,
 )
+
+private fun com.inkwell.diary.data.Exchange.notebookElements(fallbackPersonaId: String): List<NotebookElement> {
+    return buildList {
+        ink?.let { ink ->
+            add(
+                InkElement(
+                    strokes = ink.strokes,
+                    committedAt = committedAt,
+                    recognizedText = ink.recognizedText,
+                ),
+            )
+        }
+        reply?.sketch?.let { sketch ->
+            add(
+                SketchElement(
+                    strokes = sketch.strokes,
+                    personaId = reply?.personaId ?: fallbackPersonaId,
+                    createdAt = reply?.createdAt ?: committedAt,
+                ),
+            )
+        }
+        reply?.text?.takeIf { it.isNotBlank() }?.let { text ->
+            add(
+                ReplyElement(
+                    text = text,
+                    personaId = reply?.personaId ?: fallbackPersonaId,
+                    createdAt = reply?.createdAt ?: committedAt,
+                ),
+            )
+        }
+    }
+}

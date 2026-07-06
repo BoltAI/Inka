@@ -4,7 +4,7 @@ Inkwell is a sideloaded Android app for Boox e-ink tablets. It turns a blank pag
 
 ## Status
 
-This repository contains the v1 implementation pass from `riddle-spec.md` plus the one-notebook persistence refactor from `manuscript-mode-spec.md`: classic Android Views, Onyx TouchHelper raw pen capture, ML Kit Digital Ink recognition, BYOK AI requests, stepped e-ink fades, persisted notebook history, word-by-word reply rendering, onboarding, settings, tests, and release docs.
+This repository contains the v1 implementation pass from `riddle-spec.md` plus the one-notebook persistence refactor from `manuscript-mode-spec.md`: classic Android Views, Onyx TouchHelper raw pen capture, ML Kit Digital Ink recognition, BYOK AI requests, e-ink fades, persisted notebook history, word-by-word reply rendering, Sketchbook drawing replies, onboarding, settings, tests, and release docs.
 
 Real Boox hardware is still required for the product gate. A normal emulator can verify the app shell and fallback drawing, but it cannot validate TouchHelper latency or e-ink refresh modes.
 
@@ -32,6 +32,8 @@ app/build/outputs/apk/release/app-release.apk
 6. Download the English handwriting model.
 7. Write on the blank page and pause for the configured commit delay.
 
+Sketchbook Drawing replies are configured in Settings -> General -> The diary replies by. Drawing mode currently requires Anthropic because it uses the Anthropic Messages vision/tool-call protocol.
+
 ## Boox Smoke Test
 
 With a Boox device connected over adb:
@@ -55,6 +57,7 @@ Use this script instead of `./gradlew connectedDebugAndroidTest` on BOOX hardwar
 - One active notebook is stored as a local JSON file under app-private storage so recognized exchanges survive restarts.
 - The live page still uses the fade illusion; persistence is storage behavior, not a separate writing mode.
 - Handwriting recognition runs on-device after the ML Kit model download.
+- Drawing-mode page snapshots are transient request inputs and are not persisted.
 
 ## V-next
 
@@ -67,6 +70,6 @@ Placeholder: add a 20-30s Boox screen video or GIF showing fade and word-by-word
 ## Licenses
 
 - App code: see `LICENSE`.
-- Caveat font: see `licenses/CAVEAT-OFL.txt`.
+- Dancing Script font: see `licenses/DANCING-SCRIPT-OFL.txt`.
 - Onyx SDK: see BOOX/Onyx SDK terms for `com.onyx.android.sdk:onyxsdk-pen`.
 - ML Kit: see Google ML Kit terms.

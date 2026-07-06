@@ -9,8 +9,10 @@ import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
 import com.inkwell.diary.data.NotebookInk
 import com.inkwell.diary.data.NotebookReply
+import com.inkwell.diary.data.NotebookSketch
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.ReplyElement
+import com.inkwell.diary.data.SketchElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -45,7 +47,11 @@ class PageRendererTest {
                         ),
                         recognizedText = "tell me a long story",
                     ),
-                    reply = NotebookReply(reply, Persona.Storyteller.name, createdAt = 11L),
+                    reply = NotebookReply(
+                        text = reply,
+                        personaId = Persona.Storyteller.name,
+                        createdAt = 11L,
+                    ),
                 ),
             ),
         )
@@ -80,6 +86,57 @@ class PageRendererTest {
         assertEquals(1, pages.size)
         val ink = pages.single().elements.single() as InkElement
         assertEquals("will this be remembered", ink.recognizedText)
+    }
+
+    @Test
+    fun `history pages composite exchanges with the same canvas id`() {
+        val renderer = PageRenderer(RuntimeEnvironment.getApplication())
+        val userStroke = InkStroke(
+            listOf(
+                InkPoint(x = 10f, y = 10f, pressure = 1f, timestampMs = 1L),
+                InkPoint(x = 20f, y = 20f, pressure = 1f, timestampMs = 2L),
+            ),
+        )
+        val aiStroke = InkStroke(
+            listOf(
+                InkPoint(x = 30f, y = 30f, pressure = 1f, timestampMs = 3L),
+                InkPoint(x = 40f, y = 40f, pressure = 1f, timestampMs = 4L),
+            ),
+        )
+        val notebook = notebook(
+            exchanges = listOf(
+                Exchange(
+                    id = "exchange-10",
+                    committedAt = 10L,
+                    canvasId = "canvas-1",
+                    ink = NotebookInk(listOf(userStroke), "finish this"),
+                    reply = NotebookReply(
+                        text = "Done.",
+                        sketch = NotebookSketch(listOf(aiStroke)),
+                        personaId = Persona.Wit.name,
+                        createdAt = 11L,
+                    ),
+                ),
+                Exchange(
+                    id = "exchange-20",
+                    committedAt = 20L,
+                    canvasId = "canvas-1",
+                    ink = NotebookInk(listOf(userStroke), "add a hat"),
+                    reply = NotebookReply(
+                        sketch = NotebookSketch(listOf(aiStroke)),
+                        personaId = Persona.Wit.name,
+                        createdAt = 21L,
+                    ),
+                ),
+            ),
+        )
+
+        val pages = renderer.historyPagesFor(notebook)
+
+        assertEquals(1, pages.size)
+        assertEquals(2, pages.single().elements.filterIsInstance<InkElement>().size)
+        assertEquals(2, pages.single().elements.filterIsInstance<SketchElement>().size)
+        assertEquals(1, pages.single().elements.filterIsInstance<ReplyElement>().size)
     }
 
     private fun notebook(exchanges: List<Exchange>): Notebook {

@@ -83,11 +83,17 @@ class NotebookStore(
         return try {
             val raw = file.readText()
             val version = schemaVersion(raw)
-            if (version != CURRENT_SCHEMA_VERSION) {
-                renameDamaged(file)
-                NotebookLoadResult.Recovered(newNotebook(DEFAULT_NOTEBOOK_ID, persona), "Unsupported schema $version")
-            } else {
-                NotebookLoadResult.Ready(json.decodeFromString(Notebook.serializer(), raw))
+            when (version) {
+                CURRENT_SCHEMA_VERSION -> NotebookLoadResult.Ready(json.decodeFromString(Notebook.serializer(), raw))
+                V2_SCHEMA_VERSION -> {
+                    val migrated = json.decodeFromString(Notebook.serializer(), raw)
+                        .copy(schemaVersion = CURRENT_SCHEMA_VERSION)
+                    NotebookLoadResult.Ready(migrated)
+                }
+                else -> {
+                    renameDamaged(file)
+                    NotebookLoadResult.Recovered(newNotebook(DEFAULT_NOTEBOOK_ID, persona), "Unsupported schema $version")
+                }
             }
         } catch (e: IOException) {
             renameDamaged(file)
@@ -105,14 +111,14 @@ class NotebookStore(
         if (!notebookDir.exists()) return null
         val candidates = notebookDir.listFiles { file ->
             file.isFile && file.extension == "json" && runCatching {
-                schemaVersion(file.readText()) == V1_SCHEMA_VERSION
+            schemaVersion(file.readText()) == V1_SCHEMA_VERSION
             }.getOrDefault(false)
         }.orEmpty()
         val source = candidates.maxWithOrNull(compareBy<File> { runCatching { v1UpdatedAt(it) }.getOrDefault(0L) }.thenBy { it.lastModified() })
             ?: return null
         val migrated = runCatching {
             val v1 = json.decodeFromString(V1Notebook.serializer(), source.readText())
-            v1.toV2Notebook(persona)
+            v1.toV3Notebook(persona)
         }.getOrNull() ?: return null
         runCatching {
             notebookDir.mkdirs()
@@ -196,7 +202,7 @@ private data class V1ReplyElement(
     override val createdAt: Long,
 ) : V1NotebookElement()
 
-private fun V1Notebook.toV2Notebook(fallbackPersona: Persona): Notebook {
+private fun V1Notebook.toV3Notebook(fallbackPersona: Persona): Notebook {
     val exchanges = mutableListOf<Exchange>()
     val elements = pages.sortedBy { it.index }
         .flatMap { it.elements }
@@ -245,8 +251,10 @@ private fun V1Notebook.toV2Notebook(fallbackPersona: Persona): Notebook {
         personaId = personaId.ifBlank { fallbackPersona.name },
         createdAt = createdAt,
         updatedAt = updatedAt,
+        schemaVersion = CURRENT_SCHEMA_VERSION,
         exchanges = exchanges,
     )
 }
 
+private const val V2_SCHEMA_VERSION = 2
 private const val V1_SCHEMA_VERSION = 1

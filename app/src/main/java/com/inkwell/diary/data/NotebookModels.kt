@@ -34,6 +34,7 @@ data class Notebook(
 data class Exchange(
     val id: String,
     val committedAt: Long,
+    val canvasId: String? = null,
     val ink: NotebookInk? = null,
     val reply: NotebookReply? = null,
 )
@@ -46,9 +47,15 @@ data class NotebookInk(
 
 @Serializable
 data class NotebookReply(
-    val text: String,
+    val text: String = "",
+    val sketch: NotebookSketch? = null,
     val personaId: String,
     val createdAt: Long,
+)
+
+@Serializable
+data class NotebookSketch(
+    val strokes: List<InkStroke>,
 )
 
 data class NotebookPage(
@@ -76,6 +83,12 @@ data class ReplyElement(
     override val createdAt: Long,
 ) : NotebookElement()
 
+data class SketchElement(
+    val strokes: List<InkStroke>,
+    val personaId: String,
+    override val createdAt: Long,
+) : NotebookElement()
+
 fun Notebook.rebuildApiHistory(maxTurns: Int = MAX_API_TURNS): List<AnthropicMessage> {
     val messages = mutableListOf<AnthropicMessage>()
     exchanges.sortedBy { it.committedAt }
@@ -95,9 +108,11 @@ fun Notebook.rebuildApiHistory(maxTurns: Int = MAX_API_TURNS): List<AnthropicMes
     return messages
 }
 
-const val CURRENT_SCHEMA_VERSION = 2
+const val CURRENT_SCHEMA_VERSION = 3
 const val MAX_API_TURNS = 20
 const val DEFAULT_NOTEBOOK_ID = "default"
 const val DEFAULT_NOTEBOOK_TITLE = "Inka's Diary"
 
 fun newExchangeId(committedAt: Long): String = "exchange-$committedAt"
+
+fun newCanvasId(createdAt: Long): String = "canvas-$createdAt"

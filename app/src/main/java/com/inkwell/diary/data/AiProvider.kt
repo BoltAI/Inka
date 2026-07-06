@@ -9,6 +9,7 @@ enum class AiProvider(
         label = "Anthropic",
         defaultModel = "claude-sonnet-4-6",
         modelOptions = listOf(
+            "claude-fable-5",
             "claude-sonnet-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5",

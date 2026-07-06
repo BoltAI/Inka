@@ -28,6 +28,7 @@ import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.data.ReplyStyle
 import com.inkwell.diary.page.HandwritingFont
 import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.recognize.ModelDownloadOutcome
@@ -49,6 +50,7 @@ class SettingsPanel(
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
         fun onInkFadeStyleChanged()
+        fun onReplyStyleChanged()
         fun currentNotebookTitle(): String
         fun currentNotebookPersona(): Persona
         fun onNotebookTitleChanged(title: String)
@@ -58,8 +60,8 @@ class SettingsPanel(
 
     private enum class SettingsScreen(val title: String) {
         Home("Settings"),
+        Notebook("General"),
         Ai("AI Settings"),
-        Notebook("Notebook"),
         Persona("Persona"),
         Recognition("Recognition Settings"),
         Writing("Writing Settings"),
@@ -205,8 +207,8 @@ class SettingsPanel(
         val group = groupedList()
         panel.addView(group, fullWidth())
 
+        addTopicRow(group, "General") { navigate(SettingsScreen.Notebook) }
         addTopicRow(group, "AI Settings") { navigate(SettingsScreen.Ai) }
-        addTopicRow(group, "Notebook") { navigate(SettingsScreen.Notebook) }
         addTopicRow(group, "Persona") { navigate(SettingsScreen.Persona) }
         addTopicRow(group, "Recognition Settings") { navigate(SettingsScreen.Recognition) }
         addTopicRow(group, "Writing Settings") { navigate(SettingsScreen.Writing) }
@@ -346,12 +348,31 @@ class SettingsPanel(
                 status.text = "Notebook title saved."
             }
         }
+        addChoiceRow(notebookGroup, "Persona", callbacks.currentNotebookPersona().label) {
+            navigate(SettingsScreen.Persona)
+        }
 
         addValueRow(
             notebookGroup,
             "Storage",
             "Everything you write is stored on this device until you burn the notebook.",
         )
+
+        lateinit var replyStyleRow: ChoiceRowHandle
+        replyStyleRow = addChoiceRow(notebookGroup, "The diary replies by", prefs.replyStyle.label) {
+            val styles = ReplyStyle.entries.toList()
+            showChoiceDialog(
+                title = "The diary replies by",
+                choices = styles.map { it.label },
+                selectedIndex = styles.indexOf(prefs.replyStyle).coerceAtLeast(0),
+            ) { index ->
+                val style = styles.getOrElse(index) { ReplyStyle.default }
+                prefs.replyStyle = style
+                replyStyleRow.valueText.text = style.label
+                callbacks.onReplyStyleChanged()
+                status.text = "Reply style saved: ${style.label}."
+            }
+        }
 
         lateinit var fadeRow: ChoiceRowHandle
         fadeRow = addChoiceRow(notebookGroup, "How the ink fades", prefs.inkFadeStyle.label) {
@@ -519,8 +540,8 @@ class SettingsPanel(
         delayRow = addChoiceRow(group, "Commit Delay", formatCommitDelay(prefs.commitDelayMillis)) {
             showSliderDialog(
                 title = "Commit Delay",
-                min = 1000,
-                max = 4000,
+                min = Prefs.MIN_COMMIT_DELAY_MILLIS.toInt(),
+                max = Prefs.MAX_COMMIT_DELAY_MILLIS.toInt(),
                 step = 100,
                 current = prefs.commitDelayMillis.toInt(),
                 valueLabel = { "Commit Delay: ${formatCommitDelay(it.toLong())}" },
@@ -663,7 +684,7 @@ class SettingsPanel(
     }
 
     private fun formatCommitDelay(delayMillis: Long): String {
-        return "${"%.1f".format(delayMillis.coerceIn(1000L, 4000L) / 1000f)} seconds"
+        return "${"%.1f".format(delayMillis.coerceIn(Prefs.MIN_COMMIT_DELAY_MILLIS, Prefs.MAX_COMMIT_DELAY_MILLIS) / 1000f)} seconds"
     }
 
     private fun formatFontSize(sizeSp: Float): String {

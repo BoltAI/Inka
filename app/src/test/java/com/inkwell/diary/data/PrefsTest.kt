@@ -82,6 +82,28 @@ class PrefsTest {
     }
 
     @Test
+    fun `reply style defaults to writing and uses separate commit delays`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertEquals(ReplyStyle.Writing, prefs.replyStyle)
+        assertEquals(Prefs.DEFAULT_COMMIT_DELAY_MILLIS, prefs.commitDelayMillis)
+
+        prefs.commitDelayMillis = 2500L
+        prefs.replyStyle = ReplyStyle.Drawing
+
+        assertEquals(Prefs.DEFAULT_DRAWING_COMMIT_DELAY_MILLIS, prefs.commitDelayMillis)
+
+        prefs.commitDelayMillis = 6500L
+
+        val persisted = Prefs(RuntimeEnvironment.getApplication())
+        assertEquals(ReplyStyle.Drawing, persisted.replyStyle)
+        assertEquals(6500L, persisted.commitDelayMillis)
+
+        persisted.replyStyle = ReplyStyle.Writing
+        assertEquals(2500L, persisted.commitDelayMillis)
+    }
+
+    @Test
     fun `dissolve tuning defaults persist clamp bounded values and reset`() {
         val prefs = Prefs(RuntimeEnvironment.getApplication())
 
@@ -183,6 +205,11 @@ class PrefsTest {
         AiProvider.entries.forEach { provider ->
             assertTrue(provider.modelOptions.contains(provider.defaultModel))
         }
+    }
+
+    @Test
+    fun `anthropic model options include fable`() {
+        assertTrue(AiProvider.Anthropic.modelOptions.contains("claude-fable-5"))
     }
 
     @Test

@@ -2,7 +2,7 @@
 
 Automated gate:
 
-- [x] `./gradlew test assembleRelease` passes from a clean clone with no local secrets. Last run: 2026-07-05, local workstation after the one-notebook persistence refactor.
+- [x] `./gradlew test assembleRelease` passes from a clean clone with no local secrets. Last run: 2026-07-06, local workstation after Sketchbook Drawing mode.
 - [ ] GitHub Actions release build passes.
 
 Device smoke:
@@ -60,6 +60,7 @@ Device smoke:
 - [x] 2026-07-06: changed History into a distinct read-only screen. Opening it swaps the main toolbar for a History top nav with Back on the left and only `Burn notebook` on the right; swiping past the last page no longer exits History. The burn action shows destructive confirmation before deleting the notebook. Added BOOX smoke coverage for the History chrome and hidden main toolbar actions. Ran `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest`, `./gradlew test assembleRelease`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (4 tests)` and launch logs showed raw drawing attached with no fatal/ANR output.
 - [x] 2026-07-06: implemented the dust dissolve fade as the default committed-ink animation, kept `Simply fades` as the stepped fallback, added the debug-only Dissolve Lab, and fixed a notebook temp-file collision found by BOOX smoke during concurrent saves. Ran `./gradlew testDebugUnitTest`, `./gradlew test assembleRelease`, `./gradlew assembleDebug assembleDebugAndroidTest`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (4 tests)` and launch logs showed raw drawing attached with no fatal/ANR output.
 - [x] 2026-07-06: fixed the dissolve handoff so the original ink remains visible until the wind sweep reaches each cell; active cells peel away while delayed cells stay in place. Added JVM coverage for zero-offset start, unreached-cell rendering, and mixed active/delayed frames. Ran `./gradlew testDebugUnitTest`, `./gradlew test assembleRelease`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (4 tests)`.
+- [x] 2026-07-06: implemented Sketchbook Drawing replies: Settings -> General selects Writing/Drawing, Drawing mode snapshots the page as transient grayscale PNG, sends Anthropic forced `draw` tool requests, flattens constrained SVG paths into sketch strokes, stores schema v3 sketch replies with `canvasId`, composites same-canvas exchanges in History, and keeps Writing fade behavior intact. Ran `./gradlew test`, `./gradlew assembleDebug assembleRelease`, `git diff --check`, and `ANDROID_SERIAL=a8f9bed9 scripts/boox-smoke.sh`; BOOX instrumentation passed with `OK (5 tests)` including the General reply-style row smoke, and launch logs showed raw drawing attached with no fatal/ANR output. Manual stylus/AI Drawing quality still needs the Sketchbook checklist below.
 
 Extended on-device release script. Execute on real Boox hardware before public release; emulator cannot exercise TouchHelper or e-ink refresh.
 
@@ -87,6 +88,22 @@ One-notebook persistence additions:
 9. [ ] **Dust dissolve money shot:** set `How the ink fades` to `Turns to dust`, write "hello?", and commit. Pass: dissolve sweeps left-to-right, dust is visibly carried rightward like wind with slight upward lift, and the page lands clean after the final full refresh. Film this for the release asset.
 10. [ ] **Dust dense page:** fill most of the page and commit. Pass: adaptive cells keep the animation within the configured duration with no visible frame hang.
 11. [ ] **Fade fallback:** switch `How the ink fades` to `Simply fades`. Pass: committed ink uses the old stepped fade and the rest of the reply flow is unchanged.
+
+Sketchbook reply style additions:
+
+1. [ ] **Canonical demo:** Settings -> General -> set `The diary replies by` to `Drawing`, draw the front half of a horse, write `finish the drawing`, then double-tap. Pass: the diary completes the figure in blue/gray ink, stroke by stroke, near or attached to the user's lines, without over-tracing them.
+2. [ ] **Words-only:** write `draw me a cat` and double-tap. Pass: a recognizable line-art cat appears in empty space with a small number of confident strokes and at most one short caption.
+3. [ ] **Accumulation:** on the same canvas, make three consecutive requests such as `now give it a hat` and `add a moon`. Pass: nothing fades, additions land sensibly, and History shows the whole canvas composited on one page.
+4. [ ] **Fresh canvas:** in Drawing mode, swipe left or tap the right edge. Pass: the live page becomes blank, the next sketch starts a new canvas, and the previous canvas remains readable in History.
+5. [ ] **Mode switch integrity:** flip back to `Writing`. Pass: ML Kit recognition, prompt fade, and written replies resume; earlier sketch exchanges still render correctly in History.
+6. [ ] **Transcript:** after `finish the drawing`, inspect the notebook JSON. Pass: the exchange stores the visible instruction in `ink.recognizedText` from the draw tool's `page_text_transcript`.
+7. [ ] **Degenerate input:** commit a single dot. Pass: the app either draws something or falls back to a written reply; it does not get stuck.
+8. [ ] **Provider guard:** switch provider to OpenAI or Groq while Drawing is active and commit. Pass: a modal explains that Drawing mode requires Anthropic and the page remains writable.
+9. [ ] **Pacing:** request a dense sketch. Pass: around 40 strokes completes in <= 12s with no stuck refresh, and the final refresh leaves the page crisp.
+
+Sketchbook release gate:
+
+- [ ] Film item 1 uncut: pen draws the half-horse, double-tap commits, and the diary draws the rest stroke by stroke. Do not ship Sketchbook mode if the result looks pasted instead of drawn.
 
 Release gate:
 

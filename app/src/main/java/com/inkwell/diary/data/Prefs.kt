@@ -69,6 +69,14 @@ class Prefs(context: Context) {
         get() = InkFadeStyle.fromStoredName(plain.getString(KEY_INK_FADE_STYLE, InkFadeStyle.default.name))
         set(value) = plain.edit { putString(KEY_INK_FADE_STYLE, value.name) }
 
+    var replyStyle: ReplyStyle
+        get() = ReplyStyle.fromStoredName(plain.getString(KEY_REPLY_STYLE, ReplyStyle.default.name))
+        set(value) = plain.edit { putString(KEY_REPLY_STYLE, value.name) }
+
+    var hasSeenDrawingModeHint: Boolean
+        get() = plain.getBoolean(KEY_SEEN_DRAWING_MODE_HINT, false)
+        set(value) = plain.edit { putBoolean(KEY_SEEN_DRAWING_MODE_HINT, value) }
+
     var customPrompt: String
         get() = plain.getString(KEY_CUSTOM_PROMPT, "").orEmpty()
         set(value) = plain.edit { putString(KEY_CUSTOM_PROMPT, value) }
@@ -78,8 +86,30 @@ class Prefs(context: Context) {
         set(value) = plain.edit { putString(KEY_LANGUAGE, value.ifBlank { DEFAULT_LANGUAGE }) }
 
     var commitDelayMillis: Long
+        get() = when (replyStyle) {
+            ReplyStyle.Writing -> writingCommitDelayMillis
+            ReplyStyle.Drawing -> drawingCommitDelayMillis
+        }
+        set(value) {
+            when (replyStyle) {
+                ReplyStyle.Writing -> writingCommitDelayMillis = value
+                ReplyStyle.Drawing -> drawingCommitDelayMillis = value
+            }
+        }
+
+    var writingCommitDelayMillis: Long
         get() = plain.getLong(KEY_COMMIT_DELAY, DEFAULT_COMMIT_DELAY_MILLIS)
-        set(value) = plain.edit { putLong(KEY_COMMIT_DELAY, value.coerceIn(1000L, 4000L)) }
+            .coerceIn(MIN_COMMIT_DELAY_MILLIS, MAX_COMMIT_DELAY_MILLIS)
+        set(value) = plain.edit {
+            putLong(KEY_COMMIT_DELAY, value.coerceIn(MIN_COMMIT_DELAY_MILLIS, MAX_COMMIT_DELAY_MILLIS))
+        }
+
+    var drawingCommitDelayMillis: Long
+        get() = plain.getLong(KEY_DRAWING_COMMIT_DELAY, DEFAULT_DRAWING_COMMIT_DELAY_MILLIS)
+            .coerceIn(MIN_COMMIT_DELAY_MILLIS, MAX_COMMIT_DELAY_MILLIS)
+        set(value) = plain.edit {
+            putLong(KEY_DRAWING_COMMIT_DELAY, value.coerceIn(MIN_COMMIT_DELAY_MILLIS, MAX_COMMIT_DELAY_MILLIS))
+        }
 
     var handwritingFontKey: String
         get() = plain.getString(KEY_HANDWRITING_FONT, DEFAULT_HANDWRITING_FONT).orEmpty()
@@ -248,6 +278,9 @@ class Prefs(context: Context) {
         const val DEFAULT_MODEL = "claude-sonnet-4-6"
         const val DEFAULT_LANGUAGE = "en-US"
         const val DEFAULT_COMMIT_DELAY_MILLIS = 2000L
+        const val DEFAULT_DRAWING_COMMIT_DELAY_MILLIS = 6000L
+        const val MIN_COMMIT_DELAY_MILLIS = 1000L
+        const val MAX_COMMIT_DELAY_MILLIS = 10000L
         const val DEFAULT_HANDWRITING_FONT = "dancing_script"
         const val MIN_HANDWRITING_FONT_SIZE_SP = 28f
         const val MAX_HANDWRITING_FONT_SIZE_SP = 70f
@@ -289,11 +322,14 @@ class Prefs(context: Context) {
         private const val KEY_PERSONA = "persona"
         private const val KEY_ACTIVE_NOTEBOOK_ID = "active_notebook_id"
         private const val KEY_SEEN_FADE_DISCLOSURE = "seen_fade_disclosure"
+        private const val KEY_SEEN_DRAWING_MODE_HINT = "seen_drawing_mode_hint"
         private const val KEY_NORMALIZED_BLANK_CUSTOM_PERSONA = "normalized_blank_custom_persona"
         private const val KEY_INK_FADE_STYLE = "ink_fade_style"
+        private const val KEY_REPLY_STYLE = "reply_style"
         private const val KEY_CUSTOM_PROMPT = "custom_prompt"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_COMMIT_DELAY = "commit_delay"
+        private const val KEY_DRAWING_COMMIT_DELAY = "drawing_commit_delay"
         private const val KEY_HANDWRITING_FONT = "handwriting_font"
         private const val KEY_HANDWRITING_FONT_SIZE_SP = "handwriting_font_size_sp"
         private const val KEY_HANDWRITING_FONT_BOLD = "handwriting_font_bold"

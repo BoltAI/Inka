@@ -30,22 +30,31 @@ import androidx.lifecycle.lifecycleScope
 import com.inkwell.diary.BuildConfig
 import com.inkwell.diary.R
 import com.inkwell.diary.brain.AnthropicResult
+import com.inkwell.diary.brain.BrainErrorKind
 import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.brain.ConversationSettings
 import com.inkwell.diary.brain.DiaryError
+import com.inkwell.diary.brain.DrawingReplyResult
 import com.inkwell.diary.brain.ErrorMapper
+import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.Exchange
 import com.inkwell.diary.data.InkMessage
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
+import com.inkwell.diary.data.InkElement
 import com.inkwell.diary.data.NotebookInk
 import com.inkwell.diary.data.NotebookLoadResult
 import com.inkwell.diary.data.NotebookPage
 import com.inkwell.diary.data.NotebookReply
+import com.inkwell.diary.data.NotebookSketch
 import com.inkwell.diary.data.NotebookStore
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.data.ReplyElement
+import com.inkwell.diary.data.ReplyStyle
+import com.inkwell.diary.data.SketchElement
 import com.inkwell.diary.data.StrokeStore
+import com.inkwell.diary.data.newCanvasId
 import com.inkwell.diary.data.newExchangeId
 import com.inkwell.diary.data.rebuildApiHistory
 import com.inkwell.diary.ink.CommitTimer
@@ -58,6 +67,7 @@ import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.page.PageCanvasView
 import com.inkwell.diary.page.PageRenderer
 import com.inkwell.diary.page.ReplyOverlayView
+import com.inkwell.diary.page.SvgPathAdapter
 import com.inkwell.diary.page.dissolveConfig
 import com.inkwell.diary.recognize.MlKitRecognitionService
 import com.inkwell.diary.recognize.RecognitionOutcome
@@ -104,6 +114,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     private var historyPages: List<NotebookPage> = emptyList()
     private var historyPageIndex = 0
     private var voiceChangedForNextRequest = false
+    private var activeCanvasId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -309,10 +320,15 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         clearRawSurface()
         renderer.attach(pageView, width, height)
         if (!pageSurfaceInitialized) {
-            renderer.drawInitialHint()
+            renderCurrentPageOrHint(fullRefresh = true)
             pageSurfaceInitialized = true
         } else if (historyOpen) {
             renderHistoryPage(fullRefresh = surfaceSizeChanged)
+        } else if (prefs.replyStyle == ReplyStyle.Drawing) {
+            val elements = currentCanvasElements()
+            if (elements.isNotEmpty()) {
+                renderer.showNotebookElements(elements, fullRefresh = surfaceSizeChanged)
+            }
         } else if (!strokeStore.isEmpty() && captureController?.isRawDrawingActive() != true) {
             renderer.showCapturedStrokes(strokeStore.snapshotStrokes())
         }
@@ -333,6 +349,17 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         } finally {
             holder.unlockCanvasAndPost(canvas)
         }
+    }
+
+    private fun renderCurrentPageOrHint(fullRefresh: Boolean = true) {
+        if (prefs.replyStyle == ReplyStyle.Drawing) {
+            val elements = currentCanvasElements()
+            if (elements.isNotEmpty()) {
+                renderer.showNotebookElements(elements, fullRefresh = fullRefresh)
+                return
+            }
+        }
+        renderer.drawInitialHint()
     }
 
     private fun installCapture() {
@@ -372,8 +399,12 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         }
         promptFadeJob?.cancel()
         promptFadeJob = null
-        setStatus("Writing")
+        setStatus(if (prefs.replyStyle == ReplyStyle.Drawing) "Sketching" else "Writing")
         replyOverlay.clearReply()
+        if (prefs.replyStyle == ReplyStyle.Drawing) {
+            showDrawingModeHintIfNeeded()
+            return true
+        }
         if (renderer.hasReply) {
             lifecycleScope.launch {
                 renderer.fadePreviousReply()
@@ -413,12 +444,17 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         if (historyOpen && handleHistoryTap(x)) {
             return
         }
+        if (!historyOpen && prefs.replyStyle == ReplyStyle.Drawing && handleDrawingPageTurnTap(x)) {
+            return
+        }
         renderer.signalTap()
     }
 
     override fun onFingerSwipeLeft() {
         if (historyOpen) {
             turnHistoryPage(1)
+        } else if (prefs.replyStyle == ReplyStyle.Drawing) {
+            startFreshDrawingCanvas()
         }
     }
 
@@ -434,11 +470,278 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         if (historyOpen || captureController?.isRawDrawingActive() == true) {
             return
         }
+        if (prefs.replyStyle == ReplyStyle.Drawing) {
+            renderer.showNotebookElements(currentCanvasElements() + currentInkElement(strokes), fullRefresh = false)
+            return
+        }
         renderer.showCapturedStrokes(strokes, dirtyRect)
     }
 
     private suspend fun commitPage() {
-        commitFadePage()
+        when (prefs.replyStyle) {
+            ReplyStyle.Writing -> commitFadePage()
+            ReplyStyle.Drawing -> commitDrawingPage()
+        }
+    }
+
+    private suspend fun commitDrawingPage() {
+        busy = true
+        val message = strokeStore.snapshot(surfaceView.width, surfaceView.height)
+        val strokes = message.strokes
+        if (strokes.isEmpty()) {
+            busy = false
+            return
+        }
+        captureController?.setInputEnabled(false, keepRawInkVisible = true)
+        setStatus("Recognizing")
+        val recognitionStartedAt = SystemClock.elapsedRealtime()
+        addDebug("drawing recognizing ${strokes.size} stroke(s), language=${prefs.recognitionLanguage}")
+        val latestUserText = when (val outcome = recognitionService.recognize(message, prefs.recognitionLanguage)) {
+            is RecognitionOutcome.Text -> {
+                val recognitionMs = SystemClock.elapsedRealtime() - recognitionStartedAt
+                val recognized = outcome.value.trim()
+                addDebug("drawing recognized in ${recognitionMs}ms: ${recognized.ifBlank { "(blank)" }.shortForDebug()}")
+                recognized
+            }
+            is RecognitionOutcome.Failure -> {
+                val recognitionMs = SystemClock.elapsedRealtime() - recognitionStartedAt
+                addDebug("drawing recognition failed in ${recognitionMs}ms: ${outcome.message.shortForDebug()}")
+                ""
+            }
+        }
+        val notebookBeforeRequest = activeNotebook ?: loadActiveNotebook()
+        val canvasId = activeCanvasId ?: latestCanvasId(notebookBeforeRequest) ?: newCanvasId(System.currentTimeMillis()).also {
+            activeCanvasId = it
+        }
+        val priorElements = canvasElements(notebookBeforeRequest, canvasId)
+        val snapshot = renderer.snapshotForVision(
+            elements = priorElements,
+            draftStrokes = strokes,
+        )
+        if (snapshot == null) {
+            captureController?.setInputEnabled(true)
+            busy = false
+            setStatus("Canvas not ready")
+            addDebug("drawing snapshot failed: renderer not ready")
+            return
+        }
+
+        val committedAt = System.currentTimeMillis()
+        val exchangeId = newExchangeId(committedAt)
+        var persistedNotebook = notebookBeforeRequest.withExchange(
+            Exchange(
+                id = exchangeId,
+                committedAt = committedAt,
+                canvasId = canvasId,
+                ink = NotebookInk(
+                    strokes = strokes,
+                    recognizedText = latestUserText,
+                ),
+                reply = null,
+            ),
+            updatedAt = committedAt,
+        )
+        activeNotebook = persistedNotebook
+        notebookStore.save(persistedNotebook)
+        addDebug(
+            "drawing exchange saved: canvas=$canvasId, strokes=${strokes.size}, snapshot=${snapshot.width}x${snapshot.height}, transcript=${latestUserText.ifBlank { "(blank)" }.shortForDebug()}",
+        )
+
+        val provider = prefs.provider
+        if (prefs.apiKey.isBlank()) {
+            showCommittedDrawingCanvas(canvasId, strokes)
+            finishDrawingCommit("AI setup needed")
+            addDebug("drawing ai setup missing: ${provider.label} API key")
+            showMissingApiKeyWarning(provider.label)
+            return
+        }
+        if (provider != AiProvider.Anthropic) {
+            showCommittedDrawingCanvas(canvasId, strokes)
+            finishDrawingCommit("Anthropic required")
+            addDebug("drawing mode requires Anthropic, current=${provider.label}")
+            showWarningDialog(
+                title = "Anthropic required",
+                message = "Drawing mode uses Anthropic vision tool calls. Switch Provider to Anthropic in Settings > AI Settings.",
+            )
+            return
+        }
+
+        engine.replaceHistory(notebookBeforeRequest.rebuildApiHistory())
+        setStatus("Drawing")
+        val systemPrompt = if (voiceChangedForNextRequest) {
+            voiceChangedForNextRequest = false
+            "${prefs.systemPrompt()}\n\nThe voice of the diary has changed."
+        } else {
+            prefs.systemPrompt()
+        }
+        val settings = ConversationSettings(
+            apiKey = prefs.apiKey,
+            model = prefs.model,
+            systemPrompt = systemPrompt,
+            provider = provider,
+        )
+        showCommittedDrawingCanvas(canvasId, strokes, fullRefresh = false)
+        renderer.beginSketchReply()
+        val aiStartedAt = SystemClock.elapsedRealtime()
+        addDebug("draw stream start: ${provider.label} ${prefs.model}")
+        var firstToolDeltaAt: Long? = null
+        var firstPathParsedAt: Long? = null
+        var firstStrokeRenderedAt: Long? = null
+        val streamedPaths = mutableListOf<String>()
+        val streamedReplyStrokes = mutableListOf<InkStroke>()
+        val result = engine.streamDrawing(
+            settings = settings,
+            snapshot = snapshot,
+            latestUserText = latestUserText,
+            onPath = { path ->
+                val pathAt = SystemClock.elapsedRealtime()
+                if (firstPathParsedAt == null) {
+                    firstPathParsedAt = pathAt
+                    addDebug("draw first path parsed: ${pathAt - aiStartedAt}ms")
+                }
+                streamedPaths.add(path)
+                val converted = SvgPathAdapter.convertOne(
+                    path = path,
+                    imageWidth = snapshot.width,
+                    imageHeight = snapshot.height,
+                    pageWidth = snapshot.pageWidth,
+                    pageHeight = snapshot.pageHeight,
+                )
+                if (converted.strokes.isEmpty()) {
+                    addDebug("draw streamed path rejected")
+                } else {
+                    withContext(Dispatchers.Main) {
+                        converted.strokes.forEach { stroke ->
+                            renderer.appendSketchStroke(stroke)
+                            streamedReplyStrokes.add(stroke)
+                            if (firstStrokeRenderedAt == null) {
+                                val strokeAt = SystemClock.elapsedRealtime()
+                                firstStrokeRenderedAt = strokeAt
+                                addDebug("draw first stroke rendered: ${strokeAt - aiStartedAt}ms")
+                            }
+                        }
+                    }
+                }
+            },
+            onToolJsonDelta = {
+                if (firstToolDeltaAt == null) {
+                    val deltaAt = SystemClock.elapsedRealtime()
+                    firstToolDeltaAt = deltaAt
+                    addDebug("draw first tool delta: ${deltaAt - aiStartedAt}ms")
+                }
+            },
+        )
+        when (result) {
+            is DrawingReplyResult.Success -> {
+                val converted = SvgPathAdapter.convert(
+                    paths = result.paths,
+                    imageWidth = snapshot.width,
+                    imageHeight = snapshot.height,
+                    pageWidth = snapshot.pageWidth,
+                    pageHeight = snapshot.pageHeight,
+                )
+                addDebug(
+                    "draw tool done: paths=${result.paths.size}, valid=${converted.strokes.size}, rejected=${converted.rejectedPaths}, truncated=${converted.truncated}, total=${SystemClock.elapsedRealtime() - aiStartedAt}ms",
+                )
+                if (converted.strokes.isEmpty()) {
+                    val error = ErrorMapper.from(BrainErrorKind.BadRequest)
+                    addDebug("draw stream failed: no valid strokes after conversion")
+                    showAiFailureWarning(error)
+                    finishDrawingCommit("AI error")
+                    return
+                }
+                val missingPaths = result.paths.drop(streamedPaths.size)
+                missingPaths.forEach { path ->
+                    val missing = SvgPathAdapter.convertOne(
+                        path = path,
+                        imageWidth = snapshot.width,
+                        imageHeight = snapshot.height,
+                        pageWidth = snapshot.pageWidth,
+                        pageHeight = snapshot.pageHeight,
+                    )
+                    missing.strokes.forEach { stroke ->
+                        renderer.appendSketchStroke(stroke)
+                        streamedReplyStrokes.add(stroke)
+                    }
+                }
+                val replyStrokes = if (streamedReplyStrokes.isNotEmpty()) {
+                    streamedReplyStrokes.toList()
+                } else {
+                    converted.strokes
+                }
+                renderer.endSketchReply(fullRefresh = false)
+                addDebug(
+                    "draw stream complete: paths=${result.paths.size}, valid=${replyStrokes.size}, rejected=${converted.rejectedPaths}, truncated=${converted.truncated}, total=${SystemClock.elapsedRealtime() - aiStartedAt}ms",
+                )
+                val savedAt = System.currentTimeMillis()
+                persistedNotebook = saveDrawingReply(
+                    notebook = persistedNotebook,
+                    exchangeId = exchangeId,
+                    transcript = latestUserText.ifBlank { result.pageTextTranscript },
+                    reply = NotebookReply(
+                        text = "",
+                        sketch = NotebookSketch(replyStrokes),
+                        personaId = prefs.persona.name,
+                        createdAt = savedAt,
+                    ),
+                    savedAt = savedAt,
+                )
+                engine.replaceHistory(persistedNotebook.rebuildApiHistory())
+                finishDrawingCommit("Idle")
+            }
+            is DrawingReplyResult.Failure -> {
+                val error = ErrorMapper.from(result.kind)
+                addDebug(
+                    "draw stream failed: ${provider.label} ${prefs.model}, ${result.kind}, partialStrokes=${streamedReplyStrokes.size}, total=${SystemClock.elapsedRealtime() - aiStartedAt}ms${result.detail?.let { " - ${it.shortForDebug()}" }.orEmpty()}",
+                )
+                setStatus("AI error: ${result.kind}")
+                showAiFailureWarning(error)
+                finishDrawingCommit("AI error")
+            }
+        }
+    }
+
+    private suspend fun saveDrawingReply(
+        notebook: Notebook,
+        exchangeId: String,
+        transcript: String,
+        reply: NotebookReply,
+        savedAt: Long,
+    ): Notebook {
+        val exchange = notebook.exchanges.firstOrNull { it.id == exchangeId } ?: return notebook
+        val updatedInk = exchange.ink?.copy(recognizedText = transcript)
+        val updated = notebook.withExchange(
+            exchange.copy(
+                ink = updatedInk,
+                reply = reply,
+            ),
+            updatedAt = savedAt,
+        )
+        activeNotebook = updated
+        notebookStore.save(updated)
+        addDebug("drawing reply saved: exchanges=${updated.exchanges.size}, transcript=${transcript.ifBlank { "(blank)" }.shortForDebug()}")
+        return updated
+    }
+
+    private fun showCommittedDrawingCanvas(
+        canvasId: String,
+        newStrokes: List<InkStroke>,
+        fullRefresh: Boolean = true,
+    ) {
+        val notebook = activeNotebook ?: loadActiveNotebook()
+        val elements = canvasElements(notebook, canvasId).ifEmpty {
+            listOf(currentInkElement(newStrokes))
+        }
+        captureController?.hideRawInkLayer()
+        renderer.showNotebookElements(elements, fullRefresh = fullRefresh)
+    }
+
+    private fun finishDrawingCommit(status: String) {
+        strokeStore.clear()
+        captureController?.clearRawInkLayer()
+        captureController?.setInputEnabled(true)
+        busy = false
+        setStatus(status)
     }
 
     private suspend fun commitFadePage() {
@@ -626,6 +929,13 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         }
     }
 
+    private fun showDrawingModeHintIfNeeded() {
+        if (prefs.replyStyle != ReplyStyle.Drawing || prefs.hasSeenDrawingModeHint) return
+        prefs.hasSeenDrawingModeHint = true
+        renderer.showBottomLine(DRAWING_MODE_HINT)
+        addDebug("drawing hint shown")
+    }
+
     private fun cancelFadeDisclosure(clearPageLayer: Boolean = false) {
         val hadDisclosure = fadeDisclosureJob != null
         fadeDisclosureJob?.cancel()
@@ -706,6 +1016,15 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         addDebug("ink fade style: ${prefs.inkFadeStyle.label}")
     }
 
+    override fun onReplyStyleChanged() {
+        renderTopBar()
+        addDebug("reply style: ${prefs.replyStyle.label}, commit delay=${prefs.commitDelayMillis}ms")
+        if (prefs.replyStyle == ReplyStyle.Drawing) {
+            activeCanvasId = activeCanvasId ?: latestCanvasId(activeNotebook ?: loadActiveNotebook()) ?: newCanvasId(System.currentTimeMillis())
+            showDrawingModeHintIfNeeded()
+        }
+    }
+
     override fun currentNotebookTitle(): String {
         return activeNotebook?.title.orEmpty()
     }
@@ -756,9 +1075,67 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         activeNotebook = notebook
         prefs.activeNotebookId = notebook.id
         prefs.persona = Persona.fromStoredName(notebook.personaId)
+        activeCanvasId = latestCanvasId(notebook) ?: newCanvasId(System.currentTimeMillis())
         engine.replaceHistory(notebook.rebuildApiHistory())
         addDebug("notebook loaded: id=${notebook.id}, title=${notebook.title}, persona=${notebook.personaId}, exchanges=${notebook.exchanges.size}")
         return notebook
+    }
+
+    private fun latestCanvasId(notebook: Notebook): String? {
+        return notebook.exchanges.sortedBy { it.committedAt }.lastOrNull { it.canvasId != null }?.canvasId
+    }
+
+    private fun currentCanvasElements(): List<com.inkwell.diary.data.NotebookElement> {
+        val notebook = activeNotebook ?: loadActiveNotebook()
+        val canvasId = activeCanvasId ?: latestCanvasId(notebook) ?: return emptyList()
+        return canvasElements(notebook, canvasId)
+    }
+
+    private fun canvasElements(notebook: Notebook, canvasId: String): List<com.inkwell.diary.data.NotebookElement> {
+        return notebook.exchanges
+            .asSequence()
+            .filter { it.canvasId == canvasId }
+            .sortedBy { it.committedAt }
+            .flatMap { exchange ->
+                sequence {
+                    exchange.ink?.let { ink ->
+                        yield(
+                            InkElement(
+                                strokes = ink.strokes,
+                                committedAt = exchange.committedAt,
+                                recognizedText = ink.recognizedText,
+                            ),
+                        )
+                    }
+                    exchange.reply?.sketch?.let { sketch ->
+                        yield(
+                            SketchElement(
+                                strokes = sketch.strokes,
+                                personaId = exchange.reply.personaId,
+                                createdAt = exchange.reply.createdAt,
+                            ),
+                        )
+                    }
+                    exchange.reply?.text?.takeIf { it.isNotBlank() }?.let { text ->
+                        yield(
+                            ReplyElement(
+                                text = text,
+                                personaId = exchange.reply.personaId,
+                                createdAt = exchange.reply.createdAt,
+                            ),
+                        )
+                    }
+                }
+            }
+            .toList()
+    }
+
+    private fun currentInkElement(strokes: List<InkStroke>): InkElement {
+        return InkElement(
+            strokes = strokes,
+            committedAt = System.currentTimeMillis(),
+            recognizedText = "",
+        )
     }
 
     private fun renderHistoryPage(fullRefresh: Boolean = true) {
@@ -808,8 +1185,18 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         historyPageIndex = 0
         renderTopBar()
         captureController?.clearRawInkLayer()
-        renderer.clear()
-        renderer.drawInitialHint()
+        if (prefs.replyStyle == ReplyStyle.Drawing) {
+            val elements = currentCanvasElements()
+            if (elements.isNotEmpty()) {
+                renderer.showNotebookElements(elements, fullRefresh = true)
+            } else {
+                renderer.clear()
+                renderer.drawInitialHint()
+            }
+        } else {
+            renderer.clear()
+            renderer.drawInitialHint()
+        }
         refreshCaptureEnabled()
         setStatus("Idle")
         addDebug("history closed")
@@ -840,6 +1227,31 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         historyPageIndex = next
         renderHistoryPage(fullRefresh = true)
         addDebug("history page ${historyPageIndex + 1}/${historyPages.size}")
+    }
+
+    private fun handleDrawingPageTurnTap(x: Float): Boolean {
+        val width = surfaceView.width.takeIf { it > 0 } ?: return false
+        val hotZone = PAGE_TURN_HOT_ZONE_DP.dp().toFloat()
+        if (x < width - hotZone) return false
+        startFreshDrawingCanvas()
+        return true
+    }
+
+    private fun startFreshDrawingCanvas() {
+        if (busy || historyOpen) return
+        activeCanvasId = newCanvasId(System.currentTimeMillis())
+        promptFadeJob?.cancel()
+        promptFadeJob = null
+        commitTimer?.cancel()
+        strokeStore.clear()
+        replyOverlay.clearReply()
+        captureController?.clearRawInkLayer()
+        renderer.clear()
+        renderer.drawInitialHint()
+        showDrawingModeHintIfNeeded()
+        setStatus("New canvas")
+        addDebug("drawing canvas started: $activeCanvasId")
+        root.post { einkRefresher.requestFullRefresh(root) }
     }
 
     private fun handleToolbarRead() {
@@ -873,6 +1285,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         captureController?.clearRawInkLayer()
         strokeStore.clear()
         replyOverlay.clearReply()
+        if (prefs.replyStyle == ReplyStyle.Drawing) {
+            activeCanvasId = newCanvasId(System.currentTimeMillis())
+        }
         renderer.clear()
         renderer.drawInitialHint()
         setStatus("Idle")
@@ -904,6 +1319,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
                 val current = activeNotebook
                 val fresh = notebookStore.burn(current?.id.orEmpty(), prefs.persona)
                 activeNotebook = fresh
+                activeCanvasId = newCanvasId(System.currentTimeMillis())
                 prefs.activeNotebookId = fresh.id
                 prefs.persona = Persona.fromStoredName(fresh.personaId)
                 historyOpen = false
@@ -1307,6 +1723,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         private const val DEBUG_REPLY_FALLBACK = "This is a handwriting reply test."
         private const val DEBUG_LOG_TAG = "InkwellDebug"
         private const val FADE_DISCLOSURE = "The ink fades from the page, but the diary keeps every word. Flip back anytime."
+        private const val DRAWING_MODE_HINT = "Draw or write, then tap twice when it's my turn."
         private const val FADE_DISCLOSURE_VISIBLE_MS = 5_000L
         private const val BURN_DISSOLVE_SWEEP_MS = 560L
         private const val BURN_DISSOLVE_CELL_LIFE_MS = 360L

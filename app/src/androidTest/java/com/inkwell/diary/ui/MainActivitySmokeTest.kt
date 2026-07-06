@@ -17,6 +17,7 @@ import com.inkwell.diary.data.NotebookLoadResult
 import com.inkwell.diary.data.NotebookStore
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.data.ReplyStyle
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -134,6 +135,52 @@ class MainActivitySmokeTest {
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
             prefs.showToolbarLogButton = previousToolbarLogButton
+        }
+    }
+
+    @Test
+    fun generalSettingsExposeReplyStyleChoice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val prefs = Prefs(context)
+        val previousOnboardingState = prefs.onboardingComplete
+        val previousReplyStyle = prefs.replyStyle
+        val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        var activity: MainActivity? = null
+
+        try {
+            prefs.onboardingComplete = true
+            prefs.replyStyle = ReplyStyle.Writing
+
+            activity = instrumentation.startActivitySync(launchIntent) as MainActivity
+            assertTrue(
+                "Expected the main toolbar settings action to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsShownContentDescription("Settings") == true
+                },
+            )
+
+            assertTrue(activity.performClickOnShownContentDescription("Settings"))
+            assertTrue(
+                "Expected Settings home to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("General") == true
+                },
+            )
+            assertTrue(activity.performClickOnVisibleText("General"))
+            assertTrue(
+                "Expected General reply style row to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("The diary replies by") == true &&
+                        activity?.containsVisibleText("Writing") == true
+                },
+            )
+        } finally {
+            activity?.finish()
+            instrumentation.waitForIdleSync()
+            prefs.onboardingComplete = previousOnboardingState
+            prefs.replyStyle = previousReplyStyle
         }
     }
 
@@ -277,6 +324,18 @@ class MainActivitySmokeTest {
         return clicked
     }
 
+    private fun MainActivity.performClickOnVisibleText(expected: String): Boolean {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var clicked = false
+        instrumentation.runOnMainSync {
+            clicked = window.decorView.findVisibleTextView(expected)
+                ?.clickableSelfOrAncestor()
+                ?.performClick() == true
+        }
+        instrumentation.waitForIdleSync()
+        return clicked
+    }
+
     private fun View.findShownContentDescription(expected: String): View? {
         if (!isShown) return null
         if (contentDescription?.toString() == expected) return this
@@ -284,6 +343,26 @@ class MainActivitySmokeTest {
         for (index in 0 until childCount) {
             val match = getChildAt(index).findShownContentDescription(expected)
             if (match != null) return match
+        }
+        return null
+    }
+
+    private fun View.findVisibleTextView(expected: String): View? {
+        if (!isShown) return null
+        if (this is TextView && text?.toString() == expected) return this
+        if (this !is ViewGroup) return null
+        for (index in 0 until childCount) {
+            val match = getChildAt(index).findVisibleTextView(expected)
+            if (match != null) return match
+        }
+        return null
+    }
+
+    private fun View.clickableSelfOrAncestor(): View? {
+        var current: View? = this
+        while (current != null) {
+            if (current.isClickable && current.isEnabled) return current
+            current = current.parent as? View
         }
         return null
     }

@@ -6,8 +6,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,6 +43,8 @@ private data class AnthropicResponseBody(
 private data class AnthropicContent(
     val type: String = "text",
     val text: String = "",
+    val name: String = "",
+    val input: JsonObject? = null,
 )
 
 sealed class AnthropicResult {
@@ -48,8 +52,34 @@ sealed class AnthropicResult {
     data class Failure(val kind: BrainErrorKind, val detail: String? = null) : AnthropicResult()
 }
 
+sealed class AnthropicToolResult {
+    data class Success(val input: JsonObject) : AnthropicToolResult()
+    data class Failure(val kind: BrainErrorKind, val detail: String? = null) : AnthropicToolResult()
+}
+
+sealed class AnthropicToolStreamResult {
+    data class Success(val input: JsonObject) : AnthropicToolStreamResult()
+    data class Failure(val kind: BrainErrorKind, val detail: String? = null) : AnthropicToolStreamResult()
+}
+
 interface AnthropicTransport {
     suspend fun complete(apiKey: String, requestBody: AnthropicRequestBody): AnthropicResult
+
+    suspend fun completeRaw(apiKey: String, requestBody: JsonObject): AnthropicResult {
+        return AnthropicResult.Failure(BrainErrorKind.BadRequest, "Raw content is not supported by this transport")
+    }
+
+    suspend fun draw(apiKey: String, requestBody: JsonObject): AnthropicToolResult {
+        return AnthropicToolResult.Failure(BrainErrorKind.BadRequest, "Tool use is not supported by this transport")
+    }
+
+    suspend fun streamDraw(
+        apiKey: String,
+        requestBody: JsonObject,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult {
+        return AnthropicToolStreamResult.Failure(BrainErrorKind.BadRequest, "Tool streaming is not supported by this transport")
+    }
 
     suspend fun stream(
         apiKey: String,
@@ -104,6 +134,36 @@ class OkHttpAnthropicTransport(
         executeStreamOnce(apiKey, requestBody.copy(stream = true), onTextDelta)
     }
 
+    override suspend fun completeRaw(
+        apiKey: String,
+        requestBody: JsonObject,
+    ): AnthropicResult = withContext(Dispatchers.IO) {
+        when (val result = executeRawOnce(apiKey, requestBody)) {
+            is RawAnthropicResult.Text -> AnthropicResult.Success(result.text.ifBlank { "I heard you, but the ink came back blank." })
+            is RawAnthropicResult.Tool -> AnthropicResult.Success("I drew something, but the ink came back as a tool.")
+            is RawAnthropicResult.Failure -> AnthropicResult.Failure(result.kind, result.detail)
+        }
+    }
+
+    override suspend fun draw(
+        apiKey: String,
+        requestBody: JsonObject,
+    ): AnthropicToolResult = withContext(Dispatchers.IO) {
+        when (val result = executeRawOnce(apiKey, requestBody)) {
+            is RawAnthropicResult.Tool -> AnthropicToolResult.Success(result.input)
+            is RawAnthropicResult.Text -> AnthropicToolResult.Failure(BrainErrorKind.BadRequest, "Expected draw tool, got text")
+            is RawAnthropicResult.Failure -> AnthropicToolResult.Failure(result.kind, result.detail)
+        }
+    }
+
+    override suspend fun streamDraw(
+        apiKey: String,
+        requestBody: JsonObject,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult = withContext(Dispatchers.IO) {
+        executeToolStreamOnce(apiKey, requestBody.withStream(), onToolJsonDelta)
+    }
+
     private fun executeOnce(apiKey: String, requestBody: AnthropicRequestBody): AnthropicResult {
         val body = json.encodeToString(AnthropicRequestBody.serializer(), requestBody)
             .toRequestBody(JSON_MEDIA_TYPE)
@@ -136,6 +196,46 @@ class OkHttpAnthropicTransport(
             AnthropicResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
         } catch (e: Exception) {
             AnthropicResult.Failure(BrainErrorKind.Unknown, e::class.java.simpleName)
+        }
+    }
+
+    private fun executeRawOnce(apiKey: String, requestBody: JsonObject): RawAnthropicResult {
+        val body = json.encodeToString(JsonObject.serializer(), requestBody)
+            .toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url(baseUrl)
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .post(body)
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                val responseText = response.body?.string().orEmpty()
+                when {
+                    response.isSuccessful -> {
+                        val decoded = json.decodeFromString(
+                            AnthropicResponseBody.serializer(),
+                            responseText,
+                        )
+                        val tool = decoded.content.firstOrNull { it.type == "tool_use" && it.name == DRAW_TOOL_NAME }
+                        if (tool?.input != null) {
+                            RawAnthropicResult.Tool(tool.input)
+                        } else {
+                            val text = decoded.content.firstOrNull { it.type == "text" }?.text.orEmpty()
+                            RawAnthropicResult.Text(text.ifBlank { "I heard you, but the ink came back blank." })
+                        }
+                    }
+                    else -> response.toFailure(responseText).toRawFailure()
+                }
+            }
+        } catch (e: InterruptedIOException) {
+            RawAnthropicResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: IOException) {
+            RawAnthropicResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: Exception) {
+            RawAnthropicResult.Failure(BrainErrorKind.Unknown, e::class.java.simpleName)
         }
     }
 
@@ -194,6 +294,66 @@ class OkHttpAnthropicTransport(
         }
     }
 
+    private suspend fun executeToolStreamOnce(
+        apiKey: String,
+        requestBody: JsonObject,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult {
+        val body = json.encodeToString(JsonObject.serializer(), requestBody)
+            .toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url(baseUrl)
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .header("accept", "text/event-stream")
+            .post(body)
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@use response.toFailure(response.body?.string().orEmpty()).toToolStreamFailure()
+                }
+
+                val source = response.body?.source()
+                    ?: return@use AnthropicToolStreamResult.Failure(BrainErrorKind.BadRequest, "Empty tool stream")
+                val toolInput = StringBuilder()
+                val data = StringBuilder()
+
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    if (line.isEmpty()) {
+                        val failure = consumeToolStreamData(data.toString(), toolInput, onToolJsonDelta)
+                        data.setLength(0)
+                        if (failure != null) return@use failure
+                    } else if (line.startsWith("data:")) {
+                        if (data.isNotEmpty()) data.append('\n')
+                        data.append(line.removePrefix("data:").trimStart())
+                    }
+                }
+
+                val failure = consumeToolStreamData(data.toString(), toolInput, onToolJsonDelta)
+                if (failure != null) {
+                    failure
+                } else {
+                    val input = runCatching { json.parseToJsonElement(toolInput.toString()) as? JsonObject }.getOrNull()
+                    if (input == null) {
+                        AnthropicToolStreamResult.Failure(BrainErrorKind.BadRequest, "Invalid streamed tool input")
+                    } else {
+                        AnthropicToolStreamResult.Success(input)
+                    }
+                }
+            }
+        } catch (e: InterruptedIOException) {
+            AnthropicToolStreamResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: IOException) {
+            AnthropicToolStreamResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: Exception) {
+            AnthropicToolStreamResult.Failure(BrainErrorKind.Unknown, e::class.java.simpleName)
+        }
+    }
+
     private suspend fun consumeStreamData(
         data: String,
         reply: StringBuilder,
@@ -214,6 +374,30 @@ class OkHttpAnthropicTransport(
                 null
             }
             "error" -> payload.toStreamFailure()
+            else -> null
+        }
+    }
+
+    private suspend fun consumeToolStreamData(
+        data: String,
+        toolInput: StringBuilder,
+        onToolJsonDelta: suspend (String) -> Unit,
+    ): AnthropicToolStreamResult.Failure? {
+        if (data.isBlank()) return null
+        val payload = runCatching { json.parseToJsonElement(data) as? JsonObject }.getOrNull() ?: return null
+        return when (payload.string("type")) {
+            "content_block_delta" -> {
+                val delta = payload["delta"] as? JsonObject
+                if (delta?.string("type") == "input_json_delta") {
+                    val partial = delta.string("partial_json").orEmpty()
+                    if (partial.isNotEmpty()) {
+                        toolInput.append(partial)
+                        onToolJsonDelta(partial)
+                    }
+                }
+                null
+            }
+            "error" -> payload.toToolStreamFailure()
             else -> null
         }
     }
@@ -266,7 +450,32 @@ class OkHttpAnthropicTransport(
 
     private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
 
+    private fun AnthropicResult.Failure.toRawFailure(): RawAnthropicResult.Failure {
+        return RawAnthropicResult.Failure(kind, detail)
+    }
+
+    private fun AnthropicResult.Failure.toToolStreamFailure(): AnthropicToolStreamResult.Failure {
+        return AnthropicToolStreamResult.Failure(kind, detail)
+    }
+
+    private fun JsonObject.toToolStreamFailure(): AnthropicToolStreamResult.Failure {
+        val failure = toStreamFailure()
+        return AnthropicToolStreamResult.Failure(failure.kind, failure.detail)
+    }
+
+    private fun JsonObject.withStream(): JsonObject = buildJsonObject {
+        this@withStream.forEach { (key, value) -> put(key, value) }
+        put("stream", true)
+    }
+
     companion object {
+        private const val DRAW_TOOL_NAME = "draw"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
+}
+
+private sealed class RawAnthropicResult {
+    data class Text(val text: String) : RawAnthropicResult()
+    data class Tool(val input: JsonObject) : RawAnthropicResult()
+    data class Failure(val kind: BrainErrorKind, val detail: String? = null) : RawAnthropicResult()
 }
