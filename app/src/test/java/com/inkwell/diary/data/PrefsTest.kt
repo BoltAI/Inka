@@ -76,14 +76,14 @@ class PrefsTest {
     }
 
     @Test
-    fun `ink fade style defaults to dust and persists simple fade fallback`() {
+    fun `ink fade style defaults to simple fade and persists dust fallback`() {
         val prefs = Prefs(RuntimeEnvironment.getApplication())
 
-        assertEquals(InkFadeStyle.TurnsToDust, prefs.inkFadeStyle)
+        assertEquals(InkFadeStyle.SimplyFades, prefs.inkFadeStyle)
 
-        prefs.inkFadeStyle = InkFadeStyle.SimplyFades
+        prefs.inkFadeStyle = InkFadeStyle.TurnsToDust
 
-        assertEquals(InkFadeStyle.SimplyFades, Prefs(RuntimeEnvironment.getApplication()).inkFadeStyle)
+        assertEquals(InkFadeStyle.TurnsToDust, Prefs(RuntimeEnvironment.getApplication()).inkFadeStyle)
     }
 
     @Test

@@ -6,7 +6,7 @@ enum class InkFadeStyle(val label: String) {
     ;
 
     companion object {
-        val default: InkFadeStyle = TurnsToDust
+        val default: InkFadeStyle = SimplyFades
 
         fun fromStoredName(value: String?): InkFadeStyle {
             return entries.firstOrNull { it.name == value } ?: default
