@@ -22,10 +22,6 @@ android {
         }
     }
 
-    signingConfigs {
-        getByName("debug")
-    }
-
     buildTypes {
         debug {
             manifestPlaceholders["dissolveLabEnabled"] = "true"
@@ -33,7 +29,6 @@ android {
         release {
             isMinifyEnabled = false
             manifestPlaceholders["dissolveLabEnabled"] = "false"
-            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
