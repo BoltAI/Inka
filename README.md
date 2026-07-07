@@ -1,24 +1,29 @@
 # Inka
 
-Inka is a handwritten diary for BOOX e-ink tablets.
+Hi, I'm [Daniel](https://x.com/daniel_nguyenx), and I build [AI apps](https://boltai.com). Inspired by [Maxime Rivest's Riddle](https://x.com/MaximeRivest/status/2073544461473169432), I built Inka as an experiment exploring different ways to interact with an AI model on an e-ink device.
 
-Write with the pen, rest your hand, and the page answers back in a flowing handwritten voice. There is no chat box, no keyboard, and no glowing screen UI. The whole interaction is built around a blank sheet of paper.
+Inka is a native Android app built specifically for BOOX Note Air tablets, tested on the BOOX Note Air 5C.
+
+Write with the pen, rest your hand, and the page answers back in a flowing handwritten voice.
+
+## Demo
+
+https://github.com/user-attachments/assets/b2f76d75-4ed7-45aa-aeef-24a856df218d
 
 ## Why
 
-Most AI tools still feel like computers: prompts, sidebars, transcripts, and text boxes. Inka tries a different shape. It treats the tablet as paper first, then lets the paper quietly respond.
-
-It is meant for journaling, reflection, and small conversations where the physical act of writing matters.
+Mostly, this exists because it was fun to build, and because I can wow my 6 yo son with it. I do not let him use it unattended ofc.
 
 ## Features
 
 - Pen-first writing on BOOX tablets
 - Handwritten replies that appear directly on the page
 - Word-by-word reply animation
-- Ink fade animation after you finish writing
+- Ink fade/dissolve animation after you finish writing
 - Local notebook history
-- Reader-style settings UI for e-ink
-- Bring-your-own-key provider setup
+- Built-in writing personas
+- Native, reader-style UI for BOOX tablets
+- Bring-your-own-key AI provider setup
 - Optional experimental drawing replies in Developer settings
 - No accounts, analytics, telemetry, backend, or crash reporting
 
@@ -76,10 +81,6 @@ ANDROID_SERIAL=<device-id> scripts/boox-smoke.sh
 ```
 
 This builds, installs, runs instrumentation smoke tests, relaunches the app, and stores logs under `build/boox-smoke/`.
-
-## Design Notes
-
-Product and verification notes live in `docs/design/`. They are reference material for contributors; the README is the canonical install and usage guide.
 
 ## Privacy
 
