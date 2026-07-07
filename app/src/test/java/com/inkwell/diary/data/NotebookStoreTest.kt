@@ -100,7 +100,7 @@ class NotebookStoreTest {
     }
 
     @Test
-    fun `migrates v2 notebooks to schema v3 without damaging them`() {
+    fun `migrates v2 notebooks to schema v3 without damaging them`() = runTest {
         val store = NotebookStore(temporaryFolder.root) { 1200L }
         val file = store.fileFor(DEFAULT_NOTEBOOK_ID)
         file.parentFile?.mkdirs()
@@ -192,7 +192,7 @@ class NotebookStoreTest {
     }
 
     @Test
-    fun `unsupported schema is renamed damaged and recovered as fresh notebook`() {
+    fun `unsupported schema is renamed damaged and recovered as fresh notebook`() = runTest {
         val store = NotebookStore(temporaryFolder.root) { 3000L }
         val file = store.fileFor("unsupported")
         file.parentFile?.mkdirs()
@@ -221,7 +221,7 @@ class NotebookStoreTest {
     }
 
     @Test
-    fun `corrupt active notebook is renamed damaged and recovered`() {
+    fun `corrupt active notebook is renamed damaged and recovered`() = runTest {
         val store = NotebookStore(temporaryFolder.root) { 4000L }
         val file = store.fileFor(DEFAULT_NOTEBOOK_ID)
         file.parentFile?.mkdirs()
@@ -253,31 +253,21 @@ class NotebookStoreTest {
     }
 
     @Test
-    fun `migrates latest v1 persona notebook without deleting old files`() {
-        val store = NotebookStore(temporaryFolder.root) { 6000L }
+    fun `blank active id starts a fresh notebook instead of scanning legacy notebooks`() = runTest {
+        val store = NotebookStore(temporaryFolder.root) { 6500L }
         val notebookDir = File(temporaryFolder.root, "notebooks").apply { mkdirs() }
-        val older = File(notebookDir, "Muse.json").apply {
-            writeText(v1NotebookJson("Muse", updatedAt = 100L, recognizedText = "older question"))
-        }
-        val newer = File(notebookDir, "Scholar.json").apply {
-            writeText(v1NotebookJson("Scholar", updatedAt = 200L, recognizedText = "newer question"))
-        }
+        File(notebookDir, "Muse.json").writeText(v1NotebookJson("Muse", updatedAt = 100L, recognizedText = "legacy"))
 
-        val migrated = (store.loadOrCreateActive("", Persona.Whisper) as NotebookLoadResult.Ready).notebook
+        val loaded = (store.loadOrCreateActive("", Persona.Whisper) as NotebookLoadResult.Ready).notebook
 
-        assertEquals(DEFAULT_NOTEBOOK_ID, migrated.id)
-        assertEquals(DEFAULT_NOTEBOOK_TITLE, migrated.title)
-        assertEquals(Persona.Scholar.name, migrated.personaId)
-        assertEquals(1, migrated.exchanges.size)
-        assertEquals("newer question", migrated.exchanges.single().ink?.recognizedText)
-        assertEquals("old reply", migrated.exchanges.single().reply?.text)
-        assertTrue(older.exists())
-        assertTrue(newer.exists())
-        assertTrue(store.fileFor(DEFAULT_NOTEBOOK_ID).exists())
+        assertEquals(DEFAULT_NOTEBOOK_ID, loaded.id)
+        assertEquals(Persona.Whisper.name, loaded.personaId)
+        assertTrue(loaded.exchanges.isEmpty())
+        assertFalse(store.fileFor(DEFAULT_NOTEBOOK_ID).exists())
     }
 
     @Test
-    fun `migration is skipped when active notebook id is already set`() {
+    fun `migration is skipped when active notebook id is already set`() = runTest {
         val store = NotebookStore(temporaryFolder.root) { 7000L }
         val notebookDir = File(temporaryFolder.root, "notebooks").apply { mkdirs() }
         File(notebookDir, "Muse.json").writeText(v1NotebookJson("Muse", updatedAt = 100L, recognizedText = "legacy"))

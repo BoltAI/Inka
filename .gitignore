@@ -32,6 +32,8 @@ local.properties
 *.pem
 *.key
 *.p8
+.release-signing.properties
+/release/
 .env
 .env.*
 !.env.example

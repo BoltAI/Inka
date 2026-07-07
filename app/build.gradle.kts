@@ -4,6 +4,20 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+fun releaseSigningValue(name: String): String? =
+    providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }
+        ?: providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+
+val releaseStoreFilePath = releaseSigningValue("INKA_RELEASE_STORE_FILE")
+val releaseStorePassword = releaseSigningValue("INKA_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("INKA_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("INKA_RELEASE_KEY_PASSWORD")
+val hasReleaseSigning =
+    releaseStoreFilePath != null &&
+        releaseStorePassword != null &&
+        releaseKeyAlias != null &&
+        releaseKeyPassword != null
+
 android {
     namespace = "com.inkwell.diary"
     compileSdk = 35
@@ -22,6 +36,17 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseSigning) {
+                storeFile = file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword!!
+                keyAlias = releaseKeyAlias!!
+                keyPassword = releaseKeyPassword!!
+            }
+        }
+    }
+
     buildTypes {
         debug {
             manifestPlaceholders["dissolveLabEnabled"] = "true"
@@ -29,6 +54,9 @@ android {
         release {
             isMinifyEnabled = false
             manifestPlaceholders["dissolveLabEnabled"] = "false"
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

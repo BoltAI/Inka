@@ -48,19 +48,66 @@ Inka uses BOOX pen APIs for the best writing feel. A normal Android emulator can
 6. Complete onboarding: choose a provider, paste your API key, and download the handwriting model.
 7. Write on the blank page and pause.
 
-### Build From Source
+### Build Debug APK From Source
+
+For local testing and sideloading:
 
 ```bash
-./gradlew test assembleRelease
+./gradlew test assembleDebug
 ```
 
 The APK is generated at:
 
 ```text
-app/build/outputs/apk/release/app-release-unsigned.apk
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Release builds from source are unsigned. Official distribution builds are signed separately for Google Play.
+With a BOOX device connected over adb:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Build Signed Release
+
+Release signing is local-only. Keystores and signing config are ignored by git.
+
+Create a keystore if you do not already have one:
+
+```bash
+mkdir -p release
+keytool -genkeypair \
+  -v \
+  -keystore release/inka-upload-key.jks \
+  -storetype JKS \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -alias inka
+```
+
+Create local signing config:
+
+```bash
+cp .release-signing.properties.example .release-signing.properties
+```
+
+Then fill in `.release-signing.properties` with your keystore path, alias, and passwords.
+
+Build signed release artifacts:
+
+```bash
+scripts/build-release.sh
+```
+
+The signed artifacts are generated at:
+
+```text
+app/build/outputs/apk/release/app-release.apk
+app/build/outputs/bundle/release/app-release.aab
+```
+
+Use the `.aab` for Google Play. Each Play upload needs a higher `versionCode` in `app/build.gradle.kts`.
 
 ## Use
 

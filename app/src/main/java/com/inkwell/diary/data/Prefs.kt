@@ -6,7 +6,30 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
-class Prefs(context: Context) {
+class SecureStorageUnavailableException(cause: Throwable) : IllegalStateException(
+    "Secure storage is unavailable. API keys could not be read or saved.",
+    cause,
+)
+
+fun interface SecurePrefsFactory {
+    fun create(context: Context): SharedPreferences
+}
+
+class Prefs(
+    context: Context,
+    private val securePrefsFactory: SecurePrefsFactory = SecurePrefsFactory { appContext ->
+        val masterKey = MasterKey.Builder(appContext)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            appContext,
+            "inkwell_secure",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    },
+) {
     private val appContext = context.applicationContext
     private val plain: SharedPreferences =
         appContext.getSharedPreferences("inkwell_prefs", Context.MODE_PRIVATE)
@@ -17,20 +40,8 @@ class Prefs(context: Context) {
     }
 
     private val secure: SharedPreferences by lazy {
-        runCatching {
-            val masterKey = MasterKey.Builder(appContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            EncryptedSharedPreferences.create(
-                appContext,
-                "inkwell_secure",
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-        }.getOrElse {
-            plain
-        }
+        runCatching { securePrefsFactory.create(appContext) }
+            .getOrElse { throw SecureStorageUnavailableException(it) }
     }
 
     var onboardingComplete: Boolean
@@ -248,11 +259,19 @@ class Prefs(context: Context) {
     }
 
     fun apiKey(provider: AiProvider): String {
-        return secure.getString(apiKeyKey(provider), "").orEmpty()
+        return runCatching {
+            secure.getString(apiKeyKey(provider), "").orEmpty()
+        }.getOrElse {
+            throw SecureStorageUnavailableException(it)
+        }
     }
 
     fun setApiKey(provider: AiProvider, value: String) {
-        secure.edit { putString(apiKeyKey(provider), value.trim()) }
+        runCatching {
+            secure.edit { putString(apiKeyKey(provider), value.trim()) }
+        }.getOrElse {
+            throw SecureStorageUnavailableException(it)
+        }
     }
 
     fun model(provider: AiProvider): String {

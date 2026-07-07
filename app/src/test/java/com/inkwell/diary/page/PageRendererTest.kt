@@ -1,5 +1,10 @@
 package com.inkwell.diary.page
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.view.View
 import com.inkwell.diary.data.DEFAULT_NOTEBOOK_ID
 import com.inkwell.diary.data.DEFAULT_NOTEBOOK_TITLE
 import com.inkwell.diary.data.Exchange
@@ -8,21 +13,25 @@ import com.inkwell.diary.data.InkPoint
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
 import com.inkwell.diary.data.NotebookInk
+import com.inkwell.diary.data.NotebookPage
 import com.inkwell.diary.data.NotebookReply
 import com.inkwell.diary.data.NotebookSketch
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.ReplyElement
 import com.inkwell.diary.data.SketchElement
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PageRendererTest {
     @Test
     fun `history pages split long replies without losing text`() {
@@ -139,6 +148,59 @@ class PageRendererTest {
         assertEquals(1, pages.single().elements.filterIsInstance<ReplyElement>().size)
     }
 
+    @Test
+    fun `boox renderer fallback renders visible persisted ink when native replay fails`() {
+        val context = RuntimeEnvironment.getApplication()
+        val view = PageCanvasView(context).apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(240, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(240, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 240, 240)
+        }
+        var replayCalls = 0
+        val renderer = PageRenderer(
+            context = context,
+            inkReplayRenderer = object : InkReplayRenderer {
+                override fun draw(canvas: Canvas, strokes: List<InkStroke>, paint: Paint): Boolean {
+                    replayCalls += 1
+                    return false
+                }
+            },
+        ).apply {
+            attach(view, width = 240, height = 240)
+        }
+        val page = NotebookPage(
+            index = 0,
+            elements = listOf(
+                InkElement(
+                    strokes = listOf(
+                        InkStroke(
+                            points = listOf(
+                                InkPoint(x = 24f, y = 24f, pressure = 0.8f, timestampMs = 1L),
+                                InkPoint(x = 216f, y = 216f, pressure = 0.8f, timestampMs = 2L),
+                            ),
+                        ),
+                    ),
+                    committedAt = 1L,
+                    recognizedText = "visible ink",
+                ),
+            ),
+        )
+
+        renderer.renderNotebookPage(
+            page = page,
+            pageIndex = 0,
+            pageCount = 1,
+            showPageStatus = false,
+        )
+
+        assertEquals(1, replayCalls)
+        val rendered = view.presentedBitmapCopy()
+        assertNotNull(rendered)
+        assertTrue(rendered!!.hasVisibleInk())
+    }
+
     private fun notebook(exchanges: List<Exchange>): Notebook {
         return Notebook(
             id = DEFAULT_NOTEBOOK_ID,
@@ -148,5 +210,14 @@ class PageRendererTest {
             updatedAt = 2L,
             exchanges = exchanges,
         )
+    }
+
+    private fun Bitmap.hasVisibleInk(): Boolean {
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                if (getPixel(x, y) == Color.BLACK) return true
+            }
+        }
+        return false
     }
 }

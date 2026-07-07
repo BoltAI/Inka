@@ -10,7 +10,6 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.graphics.RectF
-import android.os.Build
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -35,6 +34,8 @@ import kotlin.math.max
 class PageRenderer(
     private val context: Context,
     private val refresher: EinkRefresher = EinkRefresher(),
+    private val inkReplayRenderer: InkReplayRenderer = OnyxInkReplayRenderer(),
+    private val fallbackInkDrawer: (Canvas, List<InkStroke>, Paint) -> Unit = ::drawInkStrokes,
 ) {
     private var pageView: PageCanvasView? = null
     private var bitmap: Bitmap? = null
@@ -42,7 +43,6 @@ class PageRenderer(
     private var lastReplyBitmap: Bitmap? = null
     private var contentTopInsetPx: Int = 0
     private val tapSignals = Channel<Unit>(Channel.CONFLATED)
-    private val onyxInkReplayRenderer = OnyxInkReplayRenderer()
     private val steppedFadeAnimator = SteppedFadeAnimator()
     private var dissolveFadeAnimator = DissolveFadeAnimator()
     private var bitmapDissolveAnimator = BitmapDissolveAnimator()
@@ -338,22 +338,22 @@ class PageRenderer(
     }
 
     private fun drawSteppedFadeInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
-        if (useOnyxInkReplayForFade && onyxInkReplayRenderer.draw(c, strokes, paint)) {
+        if (useOnyxInkReplayForFade && inkReplayRenderer.draw(c, strokes, paint)) {
             Log.i(TAG, "stepped fade stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
             return
         }
         val reason = if (useOnyxInkReplayForFade) "onyx_failed" else "disabled"
         Log.i(TAG, "stepped fade stroke renderer=canvas reason=$reason alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
-        drawInkStrokes(c, strokes, paint)
+        fallbackInkDrawer(c, strokes, paint)
     }
 
     private fun drawDissolveInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
-        if (onyxInkReplayRenderer.draw(c, strokes, paint)) {
+        if (inkReplayRenderer.draw(c, strokes, paint)) {
             Log.i(TAG, "dissolve stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
             return
         }
         Log.i(TAG, "dissolve stroke renderer=canvas reason=onyx_failed alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
-        drawInkStrokes(c, strokes, paint)
+        fallbackInkDrawer(c, strokes, paint)
     }
 
     fun showNotebookElements(elements: List<NotebookElement>, fullRefresh: Boolean = true) {
@@ -657,11 +657,9 @@ class PageRenderer(
 
     private fun drawNotebookInkStrokes(c: Canvas, strokes: List<InkStroke>) {
         if (strokes.isEmpty()) return
-        if (!onyxInkReplayRenderer.draw(c, strokes, inkPaint)) {
-            if (isLikelyBooxDevice()) {
-                return
-            }
-            drawInkStrokes(c, strokes, inkPaint)
+        if (!inkReplayRenderer.draw(c, strokes, inkPaint)) {
+            Log.i(TAG, "notebook stroke renderer=canvas reason=onyx_failed strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+            fallbackInkDrawer(c, strokes, inkPaint)
         }
     }
 
@@ -789,7 +787,12 @@ class PageRenderer(
 
     private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
 
-    private fun mm(value: Float): Float = value * context.resources.displayMetrics.xdpi / MILLIMETERS_PER_INCH
+    private fun mm(value: Float): Float {
+        val xdpi = context.resources.displayMetrics.xdpi
+            .takeIf { it.isFinite() && it > 0f }
+            ?: FALLBACK_XDPI
+        return value * xdpi / MILLIMETERS_PER_INCH
+    }
 
     private fun resetInkPaint() {
         inkPaint.color = INK_COLOR
@@ -805,6 +808,7 @@ class PageRenderer(
         private const val MILLIMETERS_PER_INCH = 25.4f
         private const val REPLAY_STROKE_WIDTH_MM = 1.0f
         private const val REPLY_STROKE_WIDTH_MM = 0.9f
+        private const val FALLBACK_XDPI = 300f
         private const val MAX_CACHED_NOTEBOOK_PAGES = 3
         private const val VISION_MAX_LONG_EDGE_PX = 768
         private const val DEFAULT_REPLY_TEXT_SIZE_SP = 38f
@@ -820,13 +824,6 @@ class PageRenderer(
         private const val CAPTION_WORD_GAP_MS = 80L
         private const val FORCED_REPLY_CHUNK_CHARS = 120
         private const val TAG = "PageRenderer"
-
-        private fun isLikelyBooxDevice(): Boolean {
-            val deviceText = listOf(Build.MANUFACTURER, Build.BRAND, Build.MODEL, Build.DEVICE, Build.PRODUCT)
-                .joinToString(" ")
-                .lowercase()
-            return "onyx" in deviceText || "boox" in deviceText
-        }
     }
 }
 

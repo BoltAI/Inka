@@ -2,8 +2,6 @@ package com.inkwell.diary.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -33,21 +31,17 @@ class NotebookStore(
 
     fun fileFor(id: String): File = File(notebookDir, "${id.ifBlank { DEFAULT_NOTEBOOK_ID }}.json")
 
-    fun loadOrCreateActive(activeNotebookId: String?, persona: Persona): NotebookLoadResult {
+    suspend fun loadOrCreateActive(activeNotebookId: String?, persona: Persona): NotebookLoadResult = withContext(Dispatchers.IO) {
         val activeId = activeNotebookId.orEmpty().ifBlank { null }
         if (activeId != null) {
-            return loadOrRecover(activeId, persona)
-        }
-        val migrated = migrateLatestV1Notebook(persona)
-        return if (migrated != null) {
-            NotebookLoadResult.Ready(migrated)
+            loadOrRecover(activeId, persona)
         } else {
             NotebookLoadResult.Ready(newNotebook(DEFAULT_NOTEBOOK_ID, persona))
         }
     }
 
-    fun load(id: String, persona: Persona): NotebookLoadResult {
-        return loadOrRecover(id.ifBlank { DEFAULT_NOTEBOOK_ID }, persona)
+    suspend fun load(id: String, persona: Persona): NotebookLoadResult = withContext(Dispatchers.IO) {
+        loadOrRecover(id.ifBlank { DEFAULT_NOTEBOOK_ID }, persona)
     }
 
     suspend fun save(notebook: Notebook) = withContext(Dispatchers.IO) {
@@ -107,33 +101,6 @@ class NotebookStore(
         }
     }
 
-    private fun migrateLatestV1Notebook(persona: Persona): Notebook? {
-        if (!notebookDir.exists()) return null
-        val candidates = notebookDir.listFiles { file ->
-            file.isFile && file.extension == "json" && runCatching {
-            schemaVersion(file.readText()) == V1_SCHEMA_VERSION
-            }.getOrDefault(false)
-        }.orEmpty()
-        val source = candidates.maxWithOrNull(compareBy<File> { runCatching { v1UpdatedAt(it) }.getOrDefault(0L) }.thenBy { it.lastModified() })
-            ?: return null
-        val migrated = runCatching {
-            val v1 = json.decodeFromString(V1Notebook.serializer(), source.readText())
-            v1.toV3Notebook(persona)
-        }.getOrNull() ?: return null
-        runCatching {
-            notebookDir.mkdirs()
-            val destination = fileFor(migrated.id)
-            if (!destination.exists()) {
-                destination.writeText(json.encodeToString(migrated))
-            }
-        }
-        return migrated
-    }
-
-    private fun v1UpdatedAt(file: File): Long {
-        return json.decodeFromString(V1Notebook.serializer(), file.readText()).updatedAt
-    }
-
     private fun schemaVersion(raw: String): Int {
         return json.parseToJsonElement(raw)
             .jsonObject["schemaVersion"]
@@ -161,99 +128,6 @@ class NotebookStore(
             updatedAt = now,
         )
     }
-}
-
-@Serializable
-private data class V1Notebook(
-    val id: String,
-    val personaId: String,
-    val createdAt: Long,
-    val updatedAt: Long,
-    val schemaVersion: Int = V1_SCHEMA_VERSION,
-    val pages: List<V1NotebookPage> = emptyList(),
-)
-
-@Serializable
-private data class V1NotebookPage(
-    val index: Int,
-    val elements: List<V1NotebookElement> = emptyList(),
-)
-
-@Serializable
-private sealed class V1NotebookElement {
-    abstract val createdAt: Long
-}
-
-@Serializable
-@SerialName("ink")
-private data class V1InkElement(
-    val strokes: List<InkStroke>,
-    val committedAt: Long,
-    val recognizedText: String,
-) : V1NotebookElement() {
-    override val createdAt: Long = committedAt
-}
-
-@Serializable
-@SerialName("reply")
-private data class V1ReplyElement(
-    val text: String,
-    val personaId: String,
-    override val createdAt: Long,
-) : V1NotebookElement()
-
-private fun V1Notebook.toV3Notebook(fallbackPersona: Persona): Notebook {
-    val exchanges = mutableListOf<Exchange>()
-    val elements = pages.sortedBy { it.index }
-        .flatMap { it.elements }
-        .sortedBy { it.createdAt }
-    var index = 0
-    while (index < elements.size) {
-        val element = elements[index]
-        when (element) {
-            is V1InkElement -> {
-                val nextReply = elements.getOrNull(index + 1) as? V1ReplyElement
-                exchanges.add(
-                    Exchange(
-                        id = newExchangeId(element.committedAt),
-                        committedAt = element.committedAt,
-                        ink = NotebookInk(element.strokes, element.recognizedText),
-                        reply = nextReply?.let {
-                            NotebookReply(
-                                text = it.text,
-                                personaId = it.personaId,
-                                createdAt = it.createdAt,
-                            )
-                        },
-                    ),
-                )
-                index += if (nextReply != null) 2 else 1
-            }
-            is V1ReplyElement -> {
-                exchanges.add(
-                    Exchange(
-                        id = newExchangeId(element.createdAt),
-                        committedAt = element.createdAt,
-                        reply = NotebookReply(
-                            text = element.text,
-                            personaId = element.personaId,
-                            createdAt = element.createdAt,
-                        ),
-                    ),
-                )
-                index += 1
-            }
-        }
-    }
-    return Notebook(
-        id = DEFAULT_NOTEBOOK_ID,
-        title = DEFAULT_NOTEBOOK_TITLE,
-        personaId = personaId.ifBlank { fallbackPersona.name },
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-        schemaVersion = CURRENT_SCHEMA_VERSION,
-        exchanges = exchanges,
-    )
 }
 
 private const val V2_SCHEMA_VERSION = 2

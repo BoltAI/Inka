@@ -17,10 +17,14 @@ import com.onyx.android.sdk.pen.PenUtils
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-internal class OnyxInkReplayRenderer {
+interface InkReplayRenderer {
+    fun draw(canvas: Canvas, strokes: List<InkStroke>, paint: Paint): Boolean
+}
+
+internal class OnyxInkReplayRenderer : InkReplayRenderer {
     private var disabledReason: Throwable? = null
 
-    fun draw(canvas: Canvas, strokes: List<InkStroke>, paint: Paint): Boolean {
+    override fun draw(canvas: Canvas, strokes: List<InkStroke>, paint: Paint): Boolean {
         if (strokes.isEmpty()) return true
         if (disabledReason != null) return false
         if (canvas.width <= 0 || canvas.height <= 0) return false

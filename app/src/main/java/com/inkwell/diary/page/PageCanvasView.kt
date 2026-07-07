@@ -29,6 +29,10 @@ class PageCanvasView(context: Context) : View(context) {
         }
     }
 
+    internal fun presentedBitmapCopy(): Bitmap? {
+        return pageBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         pageBitmap?.let { bitmap ->

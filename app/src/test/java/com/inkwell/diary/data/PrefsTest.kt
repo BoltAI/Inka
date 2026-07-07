@@ -5,6 +5,7 @@ import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.page.dissolveConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -24,6 +25,10 @@ class PrefsTest {
             .clear()
             .commit()
         app.getSharedPreferences("inkwell_secure", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        app.getSharedPreferences("inkwell_test_secure", android.content.Context.MODE_PRIVATE)
             .edit()
             .clear()
             .commit()
@@ -175,7 +180,7 @@ class PrefsTest {
 
     @Test
     fun `provider stores separate keys and models`() {
-        val prefs = Prefs(RuntimeEnvironment.getApplication())
+        val prefs = prefsWithFakeSecureStorage()
 
         assertEquals(AiProvider.Anthropic, prefs.provider)
         assertEquals(AiProvider.Anthropic.defaultModel, prefs.model)
@@ -198,6 +203,53 @@ class PrefsTest {
         prefs.provider = AiProvider.Anthropic
         assertEquals("anthropic-key", prefs.apiKey)
         assertEquals("claude-custom", prefs.model)
+    }
+
+    @Test
+    fun `api keys fail closed when secure storage is unavailable`() {
+        val app = RuntimeEnvironment.getApplication()
+        val prefs = Prefs(
+            app,
+            securePrefsFactory = {
+                throw IllegalStateException("encrypted prefs unavailable")
+            },
+        )
+
+        assertThrows(SecureStorageUnavailableException::class.java) {
+            prefs.setApiKey(AiProvider.Anthropic, "secret-key")
+        }
+
+        val plain = app.getSharedPreferences("inkwell_prefs", android.content.Context.MODE_PRIVATE)
+        assertFalse(plain.contains("api_key"))
+        assertFalse(plain.contains("anthropic_api_key"))
+    }
+
+    @Test
+    fun `api key reads fail closed when secure storage read fails`() {
+        val prefs = Prefs(
+            RuntimeEnvironment.getApplication(),
+            securePrefsFactory = {
+                throwingSecurePrefs(readError = IllegalStateException("decrypt failed"))
+            },
+        )
+
+        assertThrows(SecureStorageUnavailableException::class.java) {
+            prefs.apiKey(AiProvider.Anthropic)
+        }
+    }
+
+    @Test
+    fun `api key writes fail closed when secure storage write fails`() {
+        val prefs = Prefs(
+            RuntimeEnvironment.getApplication(),
+            securePrefsFactory = {
+                throwingSecurePrefs(writeError = IllegalStateException("encrypt failed"))
+            },
+        )
+
+        assertThrows(SecureStorageUnavailableException::class.java) {
+            prefs.setApiKey(AiProvider.Anthropic, "secret-key")
+        }
     }
 
     @Test
@@ -273,5 +325,125 @@ class PrefsTest {
         assertEquals("default", reloaded.activeNotebookId)
         assertTrue(reloaded.hasSeenFadeDisclosure)
         assertTrue(reloaded.hasNormalizedBlankCustomPersona)
+    }
+
+    private fun prefsWithFakeSecureStorage(): Prefs {
+        return Prefs(
+            RuntimeEnvironment.getApplication(),
+            securePrefsFactory = { context ->
+                context.getSharedPreferences("inkwell_test_secure", android.content.Context.MODE_PRIVATE)
+            },
+        )
+    }
+
+    private fun throwingSecurePrefs(
+        readError: RuntimeException? = null,
+        writeError: RuntimeException? = null,
+    ): android.content.SharedPreferences {
+        return object : android.content.SharedPreferences {
+            override fun getAll(): MutableMap<String, *> {
+                readError?.let { throw it }
+                return mutableMapOf<String, Any>()
+            }
+
+            override fun getString(key: String?, defValue: String?): String? {
+                readError?.let { throw it }
+                return defValue
+            }
+
+            override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? {
+                readError?.let { throw it }
+                return defValues
+            }
+
+            override fun getInt(key: String?, defValue: Int): Int {
+                readError?.let { throw it }
+                return defValue
+            }
+
+            override fun getLong(key: String?, defValue: Long): Long {
+                readError?.let { throw it }
+                return defValue
+            }
+
+            override fun getFloat(key: String?, defValue: Float): Float {
+                readError?.let { throw it }
+                return defValue
+            }
+
+            override fun getBoolean(key: String?, defValue: Boolean): Boolean {
+                readError?.let { throw it }
+                return defValue
+            }
+
+            override fun contains(key: String?): Boolean {
+                readError?.let { throw it }
+                return false
+            }
+
+            override fun edit(): android.content.SharedPreferences.Editor {
+                return object : android.content.SharedPreferences.Editor {
+                    override fun putString(key: String?, value: String?): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun putStringSet(
+                        key: String?,
+                        values: MutableSet<String>?,
+                    ): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun putInt(key: String?, value: Int): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun putLong(key: String?, value: Long): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun putFloat(key: String?, value: Float): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun putBoolean(key: String?, value: Boolean): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun remove(key: String?): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun clear(): android.content.SharedPreferences.Editor {
+                        writeError?.let { throw it }
+                        return this
+                    }
+
+                    override fun commit(): Boolean {
+                        writeError?.let { throw it }
+                        return true
+                    }
+
+                    override fun apply() {
+                        writeError?.let { throw it }
+                    }
+                }
+            }
+
+            override fun registerOnSharedPreferenceChangeListener(
+                listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener?,
+            ) = Unit
+
+            override fun unregisterOnSharedPreferenceChangeListener(
+                listener: android.content.SharedPreferences.OnSharedPreferenceChangeListener?,
+            ) = Unit
+        }
     }
 }

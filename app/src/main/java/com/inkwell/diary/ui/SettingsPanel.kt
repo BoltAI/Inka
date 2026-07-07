@@ -30,6 +30,7 @@ import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReasoningEffort
 import com.inkwell.diary.data.ReplyStyle
+import com.inkwell.diary.data.SecureStorageUnavailableException
 import com.inkwell.diary.page.HandwritingFont
 import com.inkwell.diary.page.HandwritingFontWeight
 import com.inkwell.diary.recognize.ModelDownloadOutcome
@@ -235,7 +236,16 @@ class SettingsPanel(
         lateinit var effortRow: ChoiceRowHandle
         lateinit var apiKeyRow: ChoiceRowHandle
 
-        fun hasApiKey(provider: AiProvider): Boolean = prefs.apiKey(provider).isNotBlank()
+        fun apiKeyOrBlank(provider: AiProvider): String {
+            return try {
+                prefs.apiKey(provider)
+            } catch (_: SecureStorageUnavailableException) {
+                status.text = SECURE_STORAGE_ERROR
+                ""
+            }
+        }
+
+        fun hasApiKey(provider: AiProvider): Boolean = apiKeyOrBlank(provider).isNotBlank()
 
         fun updateApiKeyRow() {
             apiKeyRow.valueText.text = apiKeyStatus(currentProvider)
@@ -266,12 +276,18 @@ class SettingsPanel(
             showTextInputDialog(
                 title = "${provider.label} API Key",
                 hint = "${provider.label} API key",
-                initialValue = prefs.apiKey(provider),
+                initialValue = apiKeyOrBlank(provider),
                 masked = true,
                 multiLine = false,
             ) { value ->
                 prefs.provider = provider
-                prefs.setApiKey(provider, value)
+                try {
+                    prefs.setApiKey(provider, value)
+                } catch (_: SecureStorageUnavailableException) {
+                    status.text = SECURE_STORAGE_ERROR
+                    updateApiKeyRow()
+                    return@showTextInputDialog
+                }
                 currentProvider = provider
                 updateApiKeyRow()
                 validateSavedKey(provider, value)
@@ -1090,7 +1106,11 @@ class SettingsPanel(
     }
 
     private fun apiKeyStatus(provider: AiProvider): String {
-        return if (prefs.apiKey(provider).isBlank()) "Required" else "Configured"
+        return try {
+            if (prefs.apiKey(provider).isBlank()) "Required" else "Configured"
+        } catch (_: SecureStorageUnavailableException) {
+            "Storage error"
+        }
     }
 
     private fun customPromptStatus(): String {
@@ -1343,3 +1363,4 @@ private data class ChoiceRowHandle(
 private const val NAV_HEIGHT_DP = 72
 private const val SINGLE_LINE_ROW_HEIGHT_DP = 72
 private const val DESCRIPTION_ROW_HEIGHT_DP = 96
+private const val SECURE_STORAGE_ERROR = "Secure storage is unavailable, so API keys cannot be read or saved."

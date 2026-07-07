@@ -52,6 +52,7 @@ import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReplyElement
 import com.inkwell.diary.data.ReplyStyle
+import com.inkwell.diary.data.SecureStorageUnavailableException
 import com.inkwell.diary.data.SketchElement
 import com.inkwell.diary.data.StrokeStore
 import com.inkwell.diary.data.newCanvasId
@@ -78,6 +79,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, SettingsPanel.Callbacks {
     private lateinit var prefs: Prefs
@@ -116,6 +119,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     private var historyPageIndex = 0
     private var voiceChangedForNextRequest = false
     private var activeCanvasId: String? = null
+    private var notebookLoadJob: Job? = null
+    private val notebookLoadMutex = Mutex()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,8 +156,8 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         })
 
         if (prefs.onboardingComplete || pendingDebugReply != null) {
-            loadActiveNotebook()
             showPage()
+            startActiveNotebookLoad(renderOnComplete = true)
         } else {
             showOnboarding()
         }
@@ -166,6 +171,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             root.post { drawPendingDebugReplyIfReady() }
         } else {
             showPage()
+            startActiveNotebookLoad(renderOnComplete = true)
         }
     }
 
@@ -229,15 +235,15 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
     private fun completeOnboarding() {
         prefs.persona = Persona.default
-        val loaded = loadActiveNotebook()
-        val defaulted = loaded.withPersona(Persona.default, System.currentTimeMillis())
-        activeNotebook = defaulted
-        prefs.persona = Persona.default
-        engine.replaceHistory(defaulted.rebuildApiHistory())
+        showPage()
         lifecycleScope.launch {
+            val loaded = loadActiveNotebook()
+            val defaulted = loaded.withPersona(Persona.default, System.currentTimeMillis())
+            activeNotebook = defaulted
+            prefs.persona = Persona.default
+            engine.replaceHistory(defaulted.rebuildApiHistory())
             runCatching { notebookStore.save(defaulted) }
         }
-        showPage()
     }
 
     private fun showPage() {
@@ -371,6 +377,9 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             if (elements.isNotEmpty()) {
                 renderer.showNotebookElements(elements, fullRefresh = fullRefresh)
                 return
+            }
+            if (activeNotebook == null) {
+                startActiveNotebookLoad(renderOnComplete = true)
             }
         }
         renderer.drawInitialHint()
@@ -561,7 +570,13 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         )
 
         val provider = prefs.provider
-        if (prefs.apiKey.isBlank()) {
+        val apiKey = apiKeyForRequest(provider)
+        if (apiKey == null) {
+            showCommittedDrawingCanvas(canvasId, strokes)
+            finishDrawingCommit("Secure storage error")
+            return
+        }
+        if (apiKey.isBlank()) {
             showCommittedDrawingCanvas(canvasId, strokes)
             finishDrawingCommit("AI setup needed")
             addDebug("drawing ai setup missing: ${provider.label} API key")
@@ -588,7 +603,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             prefs.systemPrompt()
         }
         val settings = ConversationSettings(
-            apiKey = prefs.apiKey,
+            apiKey = apiKey,
             model = prefs.model,
             systemPrompt = systemPrompt,
             provider = provider,
@@ -740,7 +755,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         return updated
     }
 
-    private fun showCommittedDrawingCanvas(
+    private suspend fun showCommittedDrawingCanvas(
         canvasId: String,
         newStrokes: List<InkStroke>,
         fullRefresh: Boolean = true,
@@ -818,7 +833,16 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
 
         val promptFade = schedulePromptFade(strokes)
         val provider = prefs.provider
-        if (prefs.apiKey.isBlank()) {
+        val apiKey = apiKeyForRequest(provider)
+        if (apiKey == null) {
+            promptFade.join()
+            strokeStore.clear()
+            captureController?.setInputEnabled(true)
+            busy = false
+            setStatus("Secure storage error")
+            return
+        }
+        if (apiKey.isBlank()) {
             promptFade.join()
             strokeStore.clear()
             captureController?.setInputEnabled(true)
@@ -843,7 +867,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
             prefs.systemPrompt()
         }
         val settings = ConversationSettings(
-            apiKey = prefs.apiKey,
+            apiKey = apiKey,
             model = prefs.model,
             systemPrompt = systemPrompt,
             provider = provider,
@@ -1040,7 +1064,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         renderTopBar()
         addDebug("reply style: ${prefs.replyStyle.label}, commit delay=${prefs.commitDelayMillis}ms")
         if (prefs.replyStyle == ReplyStyle.Drawing) {
-            activeCanvasId = activeCanvasId ?: latestCanvasId(activeNotebook ?: loadActiveNotebook()) ?: newCanvasId(System.currentTimeMillis())
+            val notebook = activeNotebook
+            activeCanvasId = activeCanvasId ?: notebook?.let { latestCanvasId(it) } ?: newCanvasId(System.currentTimeMillis())
+            if (notebook == null) {
+                startActiveNotebookLoad(renderOnComplete = true)
+            }
             showDrawingModeHintIfNeeded()
         }
     }
@@ -1054,25 +1082,55 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     override fun onNotebookTitleChanged(title: String) {
-        val notebook = activeNotebook ?: loadActiveNotebook()
-        val updated = notebook.withTitle(title, System.currentTimeMillis())
-        activeNotebook = updated
-        lifecycleScope.launch { notebookStore.save(updated) }
-        addDebug("notebook title saved: ${updated.title}")
+        lifecycleScope.launch {
+            val notebook = activeNotebook ?: loadActiveNotebook()
+            val updated = notebook.withTitle(title, System.currentTimeMillis())
+            activeNotebook = updated
+            notebookStore.save(updated)
+            addDebug("notebook title saved: ${updated.title}")
+        }
     }
 
     override fun onNotebookPersonaChanged(persona: Persona) {
-        val notebook = activeNotebook ?: loadActiveNotebook()
-        val updated = notebook.withPersona(persona, System.currentTimeMillis())
-        activeNotebook = updated
-        prefs.persona = persona
-        voiceChangedForNextRequest = true
-        engine.replaceHistory(updated.rebuildApiHistory())
-        lifecycleScope.launch { notebookStore.save(updated) }
-        addDebug("notebook persona saved: ${persona.label}")
+        lifecycleScope.launch {
+            val notebook = activeNotebook ?: loadActiveNotebook()
+            val updated = notebook.withPersona(persona, System.currentTimeMillis())
+            activeNotebook = updated
+            prefs.persona = persona
+            voiceChangedForNextRequest = true
+            engine.replaceHistory(updated.rebuildApiHistory())
+            notebookStore.save(updated)
+            addDebug("notebook persona saved: ${persona.label}")
+        }
     }
 
-    private fun loadActiveNotebook(): Notebook {
+    private fun startActiveNotebookLoad(renderOnComplete: Boolean) {
+        if (activeNotebook != null || notebookLoadJob?.isActive == true) return
+        notebookLoadJob = lifecycleScope.launch {
+            val notebook = loadActiveNotebook()
+            if (
+                shouldRenderAfterNotebookLoad(
+                    renderOnComplete = renderOnComplete,
+                    rendererInitialized = ::renderer.isInitialized,
+                    pageSurfaceInitialized = pageSurfaceInitialized,
+                    settingsPanelOpen = settingsPanel != null,
+                    historyOpen = historyOpen,
+                    strokeStoreEmpty = strokeStore.isEmpty(),
+                    busy = busy,
+                )
+            ) {
+                val elements = canvasElements(notebook, activeCanvasId.orEmpty())
+                if (prefs.replyStyle == ReplyStyle.Drawing && elements.isNotEmpty()) {
+                    renderer.showNotebookElements(elements, fullRefresh = true)
+                } else {
+                    renderer.drawInitialHint()
+                }
+            }
+        }
+    }
+
+    private suspend fun loadActiveNotebook(): Notebook = notebookLoadMutex.withLock {
+        activeNotebook?.let { return@withLock it }
         val result = notebookStore.loadOrCreateActive(prefs.activeNotebookId, prefs.persona)
         var notebook = when (result) {
             is NotebookLoadResult.Ready -> result.notebook
@@ -1098,7 +1156,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         activeCanvasId = latestCanvasId(notebook) ?: newCanvasId(System.currentTimeMillis())
         engine.replaceHistory(notebook.rebuildApiHistory())
         addDebug("notebook loaded: id=${notebook.id}, title=${notebook.title}, persona=${notebook.personaId}, exchanges=${notebook.exchanges.size}")
-        return notebook
+        notebook
     }
 
     private fun latestCanvasId(notebook: Notebook): String? {
@@ -1106,7 +1164,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     private fun currentCanvasElements(): List<com.inkwell.diary.data.NotebookElement> {
-        val notebook = activeNotebook ?: loadActiveNotebook()
+        val notebook = activeNotebook ?: return emptyList()
         val canvasId = activeCanvasId ?: latestCanvasId(notebook) ?: return emptyList()
         return canvasElements(notebook, canvasId)
     }
@@ -1173,7 +1231,18 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
     }
 
     private fun openHistory(showEmptyWarning: Boolean = false) {
-        val notebook = activeNotebook ?: loadActiveNotebook()
+        val notebook = activeNotebook
+        if (notebook == null) {
+            setStatus("Loading notebook")
+            lifecycleScope.launch {
+                openHistory(loadActiveNotebook(), showEmptyWarning)
+            }
+            return
+        }
+        openHistory(notebook, showEmptyWarning)
+    }
+
+    private fun openHistory(notebook: Notebook, showEmptyWarning: Boolean) {
         if (notebook.exchanges.isEmpty()) {
             addDebug("history empty")
             if (showEmptyWarning) {
@@ -1392,6 +1461,23 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks, Settin
         showWarningDialog(
             title = "$providerLabel API key required",
             message = "Add a $providerLabel API key in Settings > AI Settings before asking for a reply.",
+        )
+    }
+
+    private fun apiKeyForRequest(provider: AiProvider): String? {
+        return try {
+            prefs.apiKey(provider)
+        } catch (error: SecureStorageUnavailableException) {
+            addDebug("secure storage unavailable: ${error.cause?.javaClass?.simpleName ?: error.javaClass.simpleName}")
+            showSecureStorageWarning()
+            null
+        }
+    }
+
+    private fun showSecureStorageWarning() {
+        showWarningDialog(
+            title = "Secure storage unavailable",
+            message = "Inka could not open Android encrypted storage, so your API key was not read or saved. Restart the app and try again.",
         )
     }
 

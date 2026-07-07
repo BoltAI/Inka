@@ -13,7 +13,6 @@ import com.inkwell.diary.data.InkPoint
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.StrokeStore
 import com.onyx.android.sdk.data.note.TouchPoint
-import com.onyx.android.sdk.api.device.epd.EpdController
 import com.onyx.android.sdk.pen.RawInputCallback
 import com.onyx.android.sdk.pen.TouchHelper
 import com.onyx.android.sdk.pen.data.TouchPointList
@@ -27,7 +26,6 @@ class InkCaptureController(
     private val excludeRectsProvider: () -> List<Rect>,
     private val callbacks: Callbacks,
     private val consumeFingerGestures: Boolean = true,
-    private val disableFingerTouchDuringPenStroke: Boolean = true,
 ) {
     interface Callbacks {
         fun onPenDown(): Boolean
@@ -84,15 +82,18 @@ class InkCaptureController(
     private var rawStrokeAccepted = false
     private var fallbackStrokeAccepted = false
     private var lastRawTouchPointList: TouchPointList? = null
+    private val fingerTouchGuard = PenFingerTouchGuard.onyx(
+        context = appContext,
+    )
 
     private val rawCallback = object : RawInputCallback() {
         override fun onBeginRawDrawing(b: Boolean, touchPoint: TouchPoint) {
             if (!inputEnabled) return
-            disableFingerTouchDuringStroke()
+            fingerTouchGuard.onPenDown()
             rawStrokeAccepted = callbacks.onPenDown()
             if (!rawStrokeAccepted) {
                 clearRejectedRawStroke()
-                enableFingerTouchAfterStroke()
+                fingerTouchGuard.onPenUp()
                 return
             }
             lastRawTouchPointList = null
@@ -121,7 +122,7 @@ class InkCaptureController(
             } finally {
                 lastRawTouchPointList = null
                 rawStrokeAccepted = false
-                enableFingerTouchAfterStroke()
+                fingerTouchGuard.onPenUp()
             }
         }
 
@@ -210,7 +211,7 @@ class InkCaptureController(
             }
         }
         if (!enabled) {
-            enableFingerTouchAfterStroke()
+            fingerTouchGuard.onPenUp()
         }
     }
 
@@ -225,7 +226,7 @@ class InkCaptureController(
             touchHelper?.setRawDrawingEnabled(false)
         }
         Log.i(TAG, "read-only input ${if (enabled) "enabled" else "disabled"}; raw drawing disabled")
-        enableFingerTouchAfterStroke()
+        fingerTouchGuard.onPenUp()
     }
 
     fun freezeRawInkLayer() {
@@ -239,7 +240,7 @@ class InkCaptureController(
             touchHelper?.setRawInputReaderEnable(false)
         }
         Log.i(TAG, "raw ink frozen; raw input reader disabled")
-        enableFingerTouchAfterStroke()
+        fingerTouchGuard.onPenUp()
     }
 
     fun hideRawInkLayer() {
@@ -267,7 +268,7 @@ class InkCaptureController(
             touchHelper?.setRawDrawingEnabled(false)
             touchHelper?.closeRawDrawing()
         }
-        enableFingerTouchAfterStroke()
+        fingerTouchGuard.onPenUp()
         touchHelper = null
         rawDrawingActive = false
     }
@@ -370,23 +371,6 @@ class InkCaptureController(
         return "reset=$resetRawSession limit=${limit.flattenToString()} excludes=${excludes.joinToString(prefix = "[", postfix = "]") { it.flattenToString() }}"
     }
 
-    private fun disableFingerTouchDuringStroke() {
-        if (!disableFingerTouchDuringPenStroke) return
-        runCatching {
-            val metrics = appContext.resources.displayMetrics
-            EpdController.setAppCTPDisableRegion(
-                appContext,
-                arrayOf(Rect(0, 0, metrics.widthPixels, metrics.heightPixels)),
-            )
-        }
-    }
-
-    private fun enableFingerTouchAfterStroke() {
-        runCatching {
-            EpdController.appResetCTPDisableRegion(appContext)
-        }
-    }
-
     private fun clearRejectedRawStroke() {
         runCatching {
             touchHelper?.setRawDrawingRenderEnabled(false)
@@ -412,7 +396,10 @@ class InkCaptureController(
     }
 
     private fun strokeWidthPx(): Float {
-        return appContext.resources.displayMetrics.xdpi / MILLIMETERS_PER_INCH * STROKE_WIDTH_MM
+        val xdpi = appContext.resources.displayMetrics.xdpi
+            .takeIf { it.isFinite() && it > 0f }
+            ?: FALLBACK_XDPI
+        return xdpi / MILLIMETERS_PER_INCH * STROKE_WIDTH_MM
     }
 
     private fun TouchPoint.toInkPoint(): InkPoint {
@@ -430,6 +417,7 @@ class InkCaptureController(
     companion object {
         private const val TAG = "InkCaptureController"
         private const val MILLIMETERS_PER_INCH = 25.4f
+        private const val FALLBACK_XDPI = 300f
         private const val STROKE_WIDTH_MM = 1.0f
         private const val SWIPE_DISTANCE_PX = 90f
     }

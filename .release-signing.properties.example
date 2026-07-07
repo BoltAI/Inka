@@ -1,0 +1,7 @@
+# Copy this file to .release-signing.properties and fill in local values.
+# Do not commit .release-signing.properties or keystore files.
+
+INKA_RELEASE_STORE_FILE=release/inka-upload-key.jks
+INKA_RELEASE_STORE_PASSWORD=
+INKA_RELEASE_KEY_ALIAS=inka
+INKA_RELEASE_KEY_PASSWORD=

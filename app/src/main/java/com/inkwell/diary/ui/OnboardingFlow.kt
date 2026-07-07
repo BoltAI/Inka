@@ -16,6 +16,7 @@ import com.inkwell.diary.brain.AnthropicResult
 import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.data.SecureStorageUnavailableException
 import com.inkwell.diary.recognize.ModelDownloadOutcome
 import com.inkwell.diary.recognize.RecognitionService
 import kotlinx.coroutines.CoroutineScope
@@ -72,7 +73,7 @@ class OnboardingFlow(
         panel.addView(providerSpinner, fullWidth())
         panel.addGap(12)
         val input = context.paperEditText("${prefs.provider.label} API key", masked = true)
-        input.setText(prefs.apiKey(prefs.provider))
+        input.setText(apiKeyOrBlank(prefs.provider))
         panel.addView(input, fullWidth())
         panel.addGap(8)
         val status = TextView(context).paperText(15f)
@@ -97,10 +98,14 @@ class OnboardingFlow(
                     scope.launch {
                         when (engine.validateKey(provider, input.text.toString(), prefs.model(provider))) {
                             is AnthropicResult.Success -> {
-                                prefs.provider = provider
-                                prefs.setApiKey(provider, input.text.toString())
-                                status.text = "${provider.label} key works."
-                                continueButton.isEnabled = true
+                                try {
+                                    prefs.provider = provider
+                                    prefs.setApiKey(provider, input.text.toString())
+                                    status.text = "${provider.label} key works."
+                                    continueButton.isEnabled = true
+                                } catch (_: SecureStorageUnavailableException) {
+                                    status.text = SECURE_STORAGE_ERROR
+                                }
                             }
                             is AnthropicResult.Failure -> {
                                 status.text = "That key did not validate."
@@ -115,7 +120,7 @@ class OnboardingFlow(
                 val provider = providers.getOrElse(position) { AiProvider.Anthropic }
                 prefs.provider = provider
                 input.hint = "${provider.label} API key"
-                input.setText(prefs.apiKey(provider))
+                input.setText(apiKeyOrBlank(provider))
                 continueButton.isEnabled = false
                 status.text = "${provider.label} selected."
             }
@@ -194,4 +199,14 @@ class OnboardingFlow(
     private fun selectedProvider(spinner: Spinner): AiProvider {
         return providers.getOrElse(spinner.selectedItemPosition) { AiProvider.Anthropic }
     }
+
+    private fun apiKeyOrBlank(provider: AiProvider): String {
+        return try {
+            prefs.apiKey(provider)
+        } catch (_: SecureStorageUnavailableException) {
+            ""
+        }
+    }
 }
+
+private const val SECURE_STORAGE_ERROR = "Secure storage is unavailable, so API keys cannot be read or saved."

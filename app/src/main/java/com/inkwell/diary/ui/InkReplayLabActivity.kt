@@ -439,7 +439,6 @@ class InkReplayLabActivity : ComponentActivity(), InkCaptureController.Callbacks
             excludeRectsProvider = { emptyList() },
             callbacks = this,
             consumeFingerGestures = false,
-            disableFingerTouchDuringPenStroke = false,
         ).also { controller ->
             surfaceView.post {
                 controller.attach()
