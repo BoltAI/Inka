@@ -178,7 +178,7 @@ class InkFadeAnimatorTest {
     fun `bitmap dissolve frames preserve original pixel colors`() {
         val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
         val red = Color.rgb(220, 30, 30)
-        val gray = Color.rgb(70, 70, 70)
+        val gray = Color.argb(96, 70, 70, 70)
         val sourcePixels = IntArray(16) { Color.TRANSPARENT }.apply {
             this[0] = red
             this[5] = gray

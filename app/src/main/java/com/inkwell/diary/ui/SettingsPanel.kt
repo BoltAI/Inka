@@ -679,8 +679,8 @@ class SettingsPanel(
         }
         addToggleRow(
             group = group,
-            label = "Use Onyx fade replay",
-            explanation = "Render fade frames with the BOOX pen renderer instead of the fallback Canvas stroke renderer.",
+            label = "Use Onyx alpha fade replay",
+            explanation = "Only applies to Simply fades. Turns to dust always uses the dissolve animation.",
             checked = prefs.useOnyxFadeReplay,
         ) { checked ->
             prefs.useOnyxFadeReplay = checked

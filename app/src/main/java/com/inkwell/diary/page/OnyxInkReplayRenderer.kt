@@ -1,6 +1,5 @@
 package com.inkwell.diary.page
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -26,9 +25,7 @@ internal class OnyxInkReplayRenderer {
         if (disabledReason != null) return false
         if (canvas.width <= 0 || canvas.height <= 0) return false
 
-        val replayBitmap = Bitmap.createBitmap(canvas.width, canvas.height, Bitmap.Config.ARGB_8888)
         return try {
-            val replayCanvas = Canvas(replayBitmap)
             val startedAt = SystemClock.elapsedRealtime()
             val maxPressure = maxTouchPressure()
             var fountainStrokeCount = 0
@@ -43,10 +40,10 @@ internal class OnyxInkReplayRenderer {
                 }
                 when (points.size) {
                     0 -> Unit
-                    1 -> drawSinglePoint(replayCanvas, strokePaint, points.first(), strokeWidth, maxPressure)
+                    1 -> drawSinglePoint(canvas, strokePaint, points.first(), strokeWidth, maxPressure)
                     else -> when (stroke.strokeStyle) {
                         InkStrokeStyle.Fountain -> {
-                            if (!drawFountainStroke(replayCanvas, strokePaint, points, strokeWidth, maxPressure)) {
+                            if (!drawFountainStroke(canvas, strokePaint, points, strokeWidth, maxPressure)) {
                                 return false
                             }
                             fountainStrokeCount += 1
@@ -55,14 +52,11 @@ internal class OnyxInkReplayRenderer {
                 }
             }
 
-            canvas.drawBitmap(replayBitmap, 0f, 0f, null)
             logRenderStrategy(strokes, fountainStrokeCount, restoredPointListStrokeCount, startedAt)
             true
         } catch (error: Throwable) {
             disable(error)
             false
-        } finally {
-            replayBitmap.recycle()
         }
     }
 
@@ -222,7 +216,7 @@ internal class OnyxInkReplayRenderer {
         private const val NORMALIZED_PRESSURE_MAX = 1f
         private const val NORMALIZED_PRESSURE_THRESHOLD = 1.5f
         private const val FOUNTAIN_SIZE_SCALE = 1f
-        private const val REPLAY_WIDTH_TWEAK = 1.2f
+        private const val REPLAY_WIDTH_TWEAK = 1.5f
         private const val SINGLE_POINT_MIN_RADIUS_SCALE = 0.42f
         private const val SINGLE_POINT_PRESSURE_RADIUS_SCALE = 0.18f
         private var strategyLogged = false

@@ -215,11 +215,16 @@ class PageRenderer(
         } else {
             dissolveFadeAnimator
         }
+        val strokeDrawer = if (inkFadeStyle == InkFadeStyle.SimplyFades) {
+            ::drawSteppedFadeInkStrokes
+        } else {
+            ::drawDissolveInkStrokes
+        }
         val target = InkFadeTarget(
             pageBitmap = b,
             pageCanvas = c,
             inkPaint = inkPaint,
-            drawStrokes = ::drawFadeInkStrokes,
+            drawStrokes = strokeDrawer,
             clearPage = { drawPaper() },
             clearRect = { rect -> clearRect(rect) },
             render = { full, dirtyRect -> render(full = full, dirtyRect = dirtyRect) },
@@ -249,7 +254,7 @@ class PageRenderer(
             pageBitmap = b,
             pageCanvas = c,
             inkPaint = inkPaint,
-            drawStrokes = ::drawFadeInkStrokes,
+            drawStrokes = ::drawDissolveInkStrokes,
             clearPage = { drawPaper() },
             clearRect = { rect -> clearRect(rect) },
             render = { full, dirtyRect -> render(full = full, dirtyRect = dirtyRect) },
@@ -332,13 +337,22 @@ class PageRenderer(
         render(full = false, dirtyRect = dirtyRect?.toPaddedRect())
     }
 
-    private fun drawFadeInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
+    private fun drawSteppedFadeInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
         if (useOnyxInkReplayForFade && onyxInkReplayRenderer.draw(c, strokes, paint)) {
-            Log.i(TAG, "fade stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+            Log.i(TAG, "stepped fade stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
             return
         }
         val reason = if (useOnyxInkReplayForFade) "onyx_failed" else "disabled"
-        Log.i(TAG, "fade stroke renderer=canvas reason=$reason alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+        Log.i(TAG, "stepped fade stroke renderer=canvas reason=$reason alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+        drawInkStrokes(c, strokes, paint)
+    }
+
+    private fun drawDissolveInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
+        if (onyxInkReplayRenderer.draw(c, strokes, paint)) {
+            Log.i(TAG, "dissolve stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+            return
+        }
+        Log.i(TAG, "dissolve stroke renderer=canvas reason=onyx_failed alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
         drawInkStrokes(c, strokes, paint)
     }
 

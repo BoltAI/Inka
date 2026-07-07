@@ -173,6 +173,7 @@ class DissolveFadeAnimator(
             cells = cells,
             frameBitmap = frameBitmap,
             framePixels = framePixels,
+            sourcePixels = mask.pixels,
         ).also {
             mask.recycle()
         }
@@ -192,7 +193,7 @@ class DissolveFadeAnimator(
         bitmap.getPixels(pixels, 0, bounds.width(), 0, 0, bounds.width(), bounds.height())
         val ink = BooleanArray(pixels.size) { index -> Color.alpha(pixels[index]) > 0 }
         bitmap.recycle()
-        return InkMask(bounds.width(), bounds.height(), ink)
+        return InkMask(bounds.width(), bounds.height(), ink, pixels)
     }
 
     private fun strokesBounds(strokes: List<InkStroke>): Rect? {
@@ -605,6 +606,7 @@ private data class InkMask(
     val width: Int,
     val height: Int,
     val ink: BooleanArray,
+    val pixels: IntArray,
 ) {
     fun recycle() = Unit
 }
