@@ -40,3 +40,7 @@ This scaffold is intentionally minimal and unauthenticated because the current
 Inka app does not send a handwriting-server auth header. Do not expose it as a
 public production endpoint until the app and Worker support an API token or
 another abuse-control mechanism.
+
+`POST /handwriting` receives generated reply text. For a diary app, Cloudflare
+deployment should be treated as an explicit privacy tradeoff, not as the default
+private setup. The local Docker server keeps synthesis on your own machine.

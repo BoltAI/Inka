@@ -88,6 +88,7 @@ data class SketchElement(
     val strokes: List<InkStroke>,
     val personaId: String,
     override val createdAt: Long,
+    val flowAfterPrevious: Boolean = false,
 ) : NotebookElement()
 
 fun Notebook.rebuildApiHistory(maxTurns: Int = MAX_API_TURNS): List<AnthropicMessage> {

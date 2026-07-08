@@ -23,6 +23,7 @@ internal fun Exchange.notebookElements(fallbackPersonaId: String): List<Notebook
                     strokes = sketch.strokes,
                     personaId = reply?.personaId ?: fallbackPersonaId,
                     createdAt = reply?.createdAt ?: committedAt,
+                    flowAfterPrevious = reply?.displayText == false && reply?.text?.isNotBlank() == true,
                 ),
             )
         }

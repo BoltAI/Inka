@@ -22,22 +22,27 @@ import com.inkwell.diary.data.Prefs.Companion.MIN_HANDWRITING_STROKE_WIDTH_MM
 import com.inkwell.diary.handwriting.HandwritingSynthesisRequest
 import com.inkwell.diary.handwriting.HandwritingSynthesisResult
 import com.inkwell.diary.handwriting.OkHttpHandwritingSynthesisClient
+import com.inkwell.diary.handwriting.handwritingSynthesisFontSizePx
 import com.inkwell.diary.page.EinkRefresher
 import com.inkwell.diary.page.PageCanvasView
 import com.inkwell.diary.page.PageRenderer
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlin.random.Random
 
 class HandwritingLabActivity : ComponentActivity() {
     private lateinit var prefs: Prefs
     private lateinit var renderer: PageRenderer
     private lateinit var pageView: PageCanvasView
+    private lateinit var statusValue: TextView
     private lateinit var seedValue: TextView
     private lateinit var fontSizeValue: TextView
     private lateinit var strokeWidthValue: TextView
     private val httpClient = OkHttpHandwritingSynthesisClient()
     private var renderJob: Job? = null
+    private var labRunId: Int = 0
     private var labFontSizeSpValue: Float = 0f
     private var labStrokeWidthMmValue: Float = DEFAULT_HANDWRITING_STROKE_WIDTH_MM
     private var labSeedValue: Long = DEFAULT_LAB_SEED
@@ -72,7 +77,7 @@ class HandwritingLabActivity : ComponentActivity() {
         pageView.post {
             renderer.attach(pageView, pageView.width, pageView.height)
             EinkRefresher().requestFullRefresh(pageView)
-            runLab()
+            updateStatus("Ready")
         }
     }
 
@@ -88,6 +93,7 @@ class HandwritingLabActivity : ComponentActivity() {
     }
 
     private fun runLab() {
+        val runId = ++labRunId
         renderJob?.cancel()
         val serverUrl = labServerUrl()
         val text = labText()
@@ -105,35 +111,48 @@ class HandwritingLabActivity : ComponentActivity() {
         }
 
         renderJob = lifecycleScope.launch {
-            updateStatus("Sending to hosted endpoint")
-            val request = HandwritingSynthesisRequest(
-                text = text,
-                pageWidth = area.pageWidth,
-                pageHeight = area.pageHeight,
-                left = area.left,
-                top = area.top,
-                maxWidth = area.maxWidth,
-                fontSizeSp = labFontSizeSpValue,
-                strokeWidthMm = labStrokeWidthMmValue,
-                style = styleForSeed(labSeedValue),
-                seed = labSeedValue,
-            )
-            val synthStartedAt = SystemClock.elapsedRealtime()
-            when (val result = httpClient.synthesize(serverUrl, request)) {
-                is HandwritingSynthesisResult.Success -> {
-                    val synthMs = SystemClock.elapsedRealtime() - synthStartedAt
-                    val points = result.strokes.sumOf { it.points.size }
-                    updateStatus("Generated ${result.strokes.size} stroke(s), $points point(s) in ${synthMs}ms")
-                    val renderStartedAt = SystemClock.elapsedRealtime()
-                    renderer.beginSketchReply()
-                    renderer.revealGeneratedHandwritingStrokes(result.strokes)
-                    val renderMs = SystemClock.elapsedRealtime() - renderStartedAt
-                    updateStatus("Rendered ${result.strokes.size} stroke(s), $points point(s) in ${renderMs}ms")
+            try {
+                updateStatus("Sending to hosted endpoint")
+                val request = HandwritingSynthesisRequest(
+                    text = text,
+                    pageWidth = area.pageWidth,
+                    pageHeight = area.pageHeight,
+                    left = area.left,
+                    top = area.top,
+                    maxWidth = area.maxWidth,
+                    fontSizeSp = handwritingSynthesisFontSizePx(
+                        fontSizeSp = labFontSizeSpValue,
+                        scaledDensity = resources.displayMetrics.density * resources.configuration.fontScale,
+                    ),
+                    strokeWidthMm = labStrokeWidthMmValue,
+                    style = styleForSeed(labSeedValue),
+                    seed = labSeedValue,
+                )
+                val synthStartedAt = SystemClock.elapsedRealtime()
+                when (val result = withTimeout(LAB_REQUEST_TIMEOUT_MS) { httpClient.synthesize(serverUrl, request) }) {
+                    is HandwritingSynthesisResult.Success -> {
+                        val synthMs = SystemClock.elapsedRealtime() - synthStartedAt
+                        val points = result.strokes.sumOf { it.points.size }
+                        updateStatus("Generated ${result.strokes.size} stroke(s), $points point(s) in ${synthMs}ms")
+                        val renderStartedAt = SystemClock.elapsedRealtime()
+                        renderer.beginSketchReply()
+                        updateStatus("Rendering ${result.strokes.size} stroke(s)")
+                        renderer.revealGeneratedHandwritingStrokes(result.strokes)
+                        val renderMs = SystemClock.elapsedRealtime() - renderStartedAt
+                        updateStatus("Rendered ${result.strokes.size} stroke(s), $points point(s) in ${renderMs}ms")
+                    }
+                    is HandwritingSynthesisResult.Failure -> {
+                        val synthMs = SystemClock.elapsedRealtime() - synthStartedAt
+                        updateStatus("Request failed after ${synthMs}ms: ${result.message}")
+                        renderer.showHint("Handwriting request failed.")
+                    }
                 }
-                is HandwritingSynthesisResult.Failure -> {
-                    val synthMs = SystemClock.elapsedRealtime() - synthStartedAt
-                    updateStatus("Request failed after ${synthMs}ms: ${result.message}")
-                    renderer.showHint("Handwriting request failed.")
+            } catch (error: TimeoutCancellationException) {
+                updateStatus("Request timed out after ${LAB_REQUEST_TIMEOUT_MS / 1000}s")
+                renderer.showHint("Handwriting request timed out.")
+            } finally {
+                if (runId == labRunId) {
+                    pageView.invalidate()
                 }
             }
         }
@@ -141,6 +160,11 @@ class HandwritingLabActivity : ComponentActivity() {
 
     private fun updateStatus(value: String) {
         Log.i(TAG, value)
+        if (::statusValue.isInitialized) {
+            runOnUiThread {
+                statusValue.text = value
+            }
+        }
     }
 
     private fun labServerUrl(): String {
@@ -180,6 +204,7 @@ class HandwritingLabActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
             setPadding(dp(10), dp(8), dp(10), dp(8))
+            addView(statusText().also { statusValue = it })
             addView(controlRow(controlButton("Close") { finish() }, controlButton("Run") { runLab() }))
             addView(
                 controlRow(
@@ -236,6 +261,22 @@ class HandwritingLabActivity : ComponentActivity() {
         }
     }
 
+    private fun statusText(): TextView {
+        return TextView(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            paperText(12f, bold = true)
+            text = "Ready"
+            setPadding(dp(8), 0, dp(8), 0)
+            setBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                dp(28),
+            ).apply {
+                setMargins(dp(3), 0, dp(3), dp(3))
+            }
+        }
+    }
+
     private fun adjustFontSize(delta: Float) {
         labFontSizeSpValue = (labFontSizeSpValue + delta).coerceIn(MIN_HANDWRITING_FONT_SIZE_SP, MAX_HANDWRITING_FONT_SIZE_SP)
         refreshControlValues()
@@ -285,10 +326,11 @@ class HandwritingLabActivity : ComponentActivity() {
         const val EXTRA_STROKE_WIDTH_MM = "com.inkwell.diary.extra.HANDWRITING_STROKE_WIDTH_MM"
         const val EXTRA_SEED = "com.inkwell.diary.extra.HANDWRITING_SEED"
         private const val TAG = "HandwritingLab"
-        private const val DEFAULT_TEXT = "again and again, a little different."
+        private const val DEFAULT_TEXT = "a little note for today"
         private const val FONT_SIZE_STEP_SP = 4f
         private const val STROKE_WIDTH_STEP_MM = 0.05f
-        private const val DEFAULT_LAB_SEED = 597542L
+        private const val LAB_REQUEST_TIMEOUT_MS = 95_000L
+        private const val DEFAULT_LAB_SEED = 111111L
         private const val MIN_RANDOM_SEED = 100000
         private const val MAX_RANDOM_SEED_EXCLUSIVE = 1000000
     }

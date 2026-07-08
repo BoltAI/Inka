@@ -185,8 +185,87 @@ class PageRendererTest {
 
         assertEquals(1, pages.size)
         assertEquals(1, pages.single().elements.filterIsInstance<InkElement>().size)
-        assertEquals(1, pages.single().elements.filterIsInstance<SketchElement>().size)
+        val sketch = pages.single().elements.filterIsInstance<SketchElement>().single()
+        assertTrue(sketch.flowAfterPrevious)
         assertEquals(0, pages.single().elements.filterIsInstance<ReplyElement>().size)
+    }
+
+    @Test
+    fun `history pages flow generated handwriting below prompt ink`() {
+        val context = RuntimeEnvironment.getApplication()
+        val view = PageCanvasView(context).apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(420, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 420, 320)
+        }
+        val renderer = PageRenderer(context).apply {
+            attach(view, width = 420, height = 320)
+        }
+        val userStroke = InkStroke(
+            listOf(
+                InkPoint(x = 60f, y = 70f, pressure = 1f, timestampMs = 1L),
+                InkPoint(x = 360f, y = 90f, pressure = 1f, timestampMs = 2L),
+            ),
+        )
+        val generatedStroke = InkStroke(
+            listOf(
+                InkPoint(x = 60f, y = 40f, pressure = 1f, timestampMs = 3L),
+                InkPoint(x = 360f, y = 50f, pressure = 1f, timestampMs = 4L),
+            ),
+        )
+        val exchange = Exchange(
+            id = "exchange-10",
+            committedAt = 10L,
+            ink = NotebookInk(listOf(userStroke), "again"),
+            reply = NotebookReply(
+                text = "try this",
+                sketch = NotebookSketch(listOf(generatedStroke)),
+                displayText = false,
+                personaId = Persona.Wit.name,
+                createdAt = 11L,
+            ),
+        )
+
+        renderer.renderNotebookPage(
+            page = NotebookPage(index = 0, elements = exchange.notebookElements(Persona.Wit.name)),
+            pageIndex = 0,
+            pageCount = 1,
+            showPageStatus = false,
+        )
+
+        val rendered = view.presentedBitmapCopy()
+        assertNotNull(rendered)
+        assertTrue(rendered!!.hasVisibleInkInBand(65, 100))
+        assertTrue(rendered.hasVisibleInkInBand(110, 150))
+        assertTrue(!rendered.hasVisibleInkInBand(30, 60))
+    }
+
+    @Test
+    fun `reply writing area starts below current prompt ink`() {
+        val context = RuntimeEnvironment.getApplication()
+        val view = PageCanvasView(context).apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(420, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 420, 320)
+        }
+        val renderer = PageRenderer(context).apply {
+            attach(view, width = 420, height = 320)
+        }
+        val promptStroke = InkStroke(
+            listOf(
+                InkPoint(x = 60f, y = 150f, pressure = 1f, timestampMs = 1L),
+                InkPoint(x = 360f, y = 180f, pressure = 1f, timestampMs = 2L),
+            ),
+        )
+
+        val area = renderer.replyWritingArea(afterStrokes = listOf(promptStroke))
+
+        assertNotNull(area)
+        assertTrue(area!!.top > 180)
     }
 
     @Test
@@ -298,6 +377,17 @@ class PageRendererTest {
         for (y in 0 until height) {
             for (x in 0 until width) {
                 if (Color.alpha(getPixel(x, y)) > 0) return true
+            }
+        }
+        return false
+    }
+
+    private fun Bitmap.hasVisibleInkInBand(yStart: Int, yEnd: Int): Boolean {
+        val start = yStart.coerceIn(0, height)
+        val end = yEnd.coerceIn(0, height)
+        for (y in start until end) {
+            for (x in 0 until width) {
+                if (getPixel(x, y) == Color.BLACK) return true
             }
         }
         return false

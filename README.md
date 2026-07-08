@@ -24,6 +24,8 @@ Mostly, this exists because it was fun to build, and because I can wow my son wi
 - Built-in writing personas
 - Native, reader-style UI for BOOX tablets
 - Bring-your-own-key AI provider setup
+- Built-in font rendering for replies by default
+- Optional experimental neural handwriting synthesis through a user-configured server
 - Optional experimental drawing replies in Developer settings
 - No accounts, analytics, telemetry, backend, or crash reporting
 
@@ -45,7 +47,7 @@ Inka uses BOOX pen APIs for the best writing feel. A normal Android emulator can
 3. Open the APK on the tablet.
 4. Allow installation from local files if Android asks.
 5. Launch **Inka**.
-6. Complete onboarding: choose a provider, paste your API key, and download the handwriting model.
+6. Complete onboarding: choose a provider, paste your API key, and download the handwriting recognition model.
 7. Write on the blank page and pause.
 
 ### Build Debug APK From Source
@@ -119,6 +121,50 @@ Use the `.aab` for Google Play. Each Play upload needs a higher `versionCode` in
 
 Experimental drawing replies are hidden under `Settings -> Developer -> AI answer mode`.
 
+## Experimental Handwriting Synthesis
+
+Inka uses the built-in font renderer by default. Developer settings also include
+an experimental hosted handwriting synthesis mode that turns reply text into
+generated ink strokes through a server you run or configure yourself.
+
+The fastest local setup is Docker:
+
+```bash
+scripts/run-handwriting-server-docker.sh
+```
+
+On macOS, you can also double-click:
+
+```text
+scripts/start-handwriting-server-mac.command
+```
+
+Then set Inka:
+
+```text
+Settings -> Developer -> Experimental handwriting -> Hosted synthesis
+Settings -> Developer -> Server Endpoint -> http://<server-ip>:8878
+```
+
+For USB testing with adb:
+
+```bash
+adb reverse tcp:8878 tcp:8878
+```
+
+Then use:
+
+```text
+http://127.0.0.1:8878
+```
+
+The developer handwriting lab does not run automatically on open. Press
+`Run` to send the sample request. The lab shows live status text and logs timing
+with the `HandwritingLab` tag.
+
+Full setup, Cloudflare Container notes, troubleshooting, and privacy details:
+`docs/design/handwriting-server-setup.md`.
+
 ## BOOX Smoke Test
 
 With a BOOX device connected over adb:
@@ -131,7 +177,7 @@ This builds, installs, runs instrumentation smoke tests, relaunches the app, and
 
 ## Privacy
 
-- No server owned by this project
+- No required Inka-owned backend
 - No account system
 - No analytics
 - No telemetry
@@ -139,6 +185,9 @@ This builds, installs, runs instrumentation smoke tests, relaunches the app, and
 - API keys are stored in encrypted Android preferences when available
 - Notebook data is stored locally in app-private storage
 - Handwriting recognition runs on-device after the model download
+- Experimental hosted handwriting synthesis sends generated reply text to the
+  server endpoint you configure. The local Docker setup keeps that server on
+  your own machine; a cloud endpoint should be treated as a privacy choice.
 
 ## Device Note
 
@@ -149,3 +198,7 @@ This is an unofficial BOOX app. It is not affiliated with Onyx or BOOX. Sideload
 App code is MIT licensed. See `LICENSE`.
 
 Dancing Script is bundled under the SIL Open Font License. See `licenses/DANCING-SCRIPT-OFL.txt`.
+
+The optional Docker handwriting synthesis server downloads and runs
+`X-rayLaser/pytorch-handwriting-synthesis-toolkit`, which is MIT licensed. Keep
+its license notice when distributing a server image or hosted deployment.

@@ -2,6 +2,8 @@
 
 Inka can render AI text replies as generated ink strokes by calling a local
 PyTorch handwriting server on the same Wi-Fi network as the BOOX tablet.
+Generated handwriting is disabled by default; the app falls back to the built-in
+font renderer unless the Developer setting points at a stroke server.
 
 ## App Contract
 
@@ -23,8 +25,8 @@ Request:
   "maxWidth": 1212,
   "fontSizeSp": 52.0,
   "strokeWidthMm": 0.30,
-  "style": "default",
-  "seed": 100001
+  "style": "lab-111111",
+  "seed": 111111
 }
 ```
 
@@ -82,6 +84,12 @@ writer. When the optional `seed` field is present, the PyTorch adapter uses it
 while creating that cached primer, so the developer lab can randomize writer
 styles without changing page layout knobs. If all attempts for a line fail, the
 server returns no strokes so the app can fall back to normal text rendering.
+
+The upstream toolkit does not publish a canonical "best seed". It exposes
+probability bias and multiple trials, while the actual model sampling remains
+stochastic. The lab default seed is `111111` because local benchmarks found it
+to be the best balance of readability and latency. Avoid seed `24680`; it has
+repeatedly produced slow collapsed samples.
 
 Useful runner overrides:
 
@@ -158,9 +166,10 @@ Settings -> Developer -> Server Endpoint -> http://<server-ip>:8787
 ```
 
 In debug builds, `Settings -> Developer -> Handwriting Lab` opens a full-screen
-lab that sends a sample text request to the configured stroke server and replays
-the returned strokes on the page. The lab can randomize the writer seed and save
-the generated handwriting size/thickness preferences used by normal replies.
+lab. Press `Run` to send a sample text request to the configured stroke server
+and replay the returned strokes on the page. The lab can randomize the writer
+seed and save the generated handwriting size/thickness preferences used by
+normal replies.
 
 ## App Setup
 
@@ -179,8 +188,13 @@ manual test guide.
 
 ## Notes
 
+- The upstream toolkit is MIT licensed. Keep its license notice when
+  distributing a server image or hosted deployment.
 - The local HTTP server is private from cloud providers, but traffic is not
   encrypted on the local network.
+- A cloud endpoint receives generated reply text. Do not expose a public
+  endpoint until the app and server support authentication or another abuse
+  control.
 - The procedural engine is line-stable and deterministic, but it is not the
   product-quality handwriting path.
 - The pretrained toolkit model is generic handwriting, not personal
@@ -188,8 +202,8 @@ manual test guide.
   not reproduce a specific person's handwriting.
 - The `style` request field is treated as a server-session writer key. The
   optional `seed` field makes creation of that cached style reproducible. The
-  default app path sends `default` without a seed, so one local server process
-  keeps one cached writer style until it restarts.
+  lab default is `lab-111111` with seed `111111`; normal reply synthesis should
+  use a stable writer key if consistent handwriting across a session is desired.
 - The PyTorch path retries collapsed samples by default. Increase
   `SAMPLE_ATTEMPTS` if a specific model/checkpoint occasionally returns tiny
   scribbles or runaway lines.

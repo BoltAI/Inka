@@ -12,6 +12,13 @@ import org.junit.Test
 class OkHttpHandwritingSynthesisClientTest {
     private lateinit var server: MockWebServer
 
+    @Test
+    fun `converts display sp to synthesis page pixels`() {
+        assertEquals(56f, handwritingSynthesisFontSizePx(fontSizeSp = 40f, scaledDensity = 1.4f), 0.01f)
+        assertEquals(40f, handwritingSynthesisFontSizePx(fontSizeSp = 40f, scaledDensity = 1f), 0.01f)
+        assertEquals(110f, handwritingSynthesisFontSizePx(fontSizeSp = 90f, scaledDensity = 2f), 0.01f)
+    }
+
     @Before
     fun setUp() {
         server = MockWebServer()

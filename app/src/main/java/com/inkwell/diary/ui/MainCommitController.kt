@@ -29,6 +29,7 @@ import com.inkwell.diary.handwriting.HandwritingSynthesisClient
 import com.inkwell.diary.handwriting.HandwritingSynthesisRequest
 import com.inkwell.diary.handwriting.HandwritingSynthesisResult
 import com.inkwell.diary.handwriting.OkHttpHandwritingSynthesisClient
+import com.inkwell.diary.handwriting.handwritingSynthesisFontSizePx
 import com.inkwell.diary.ink.InkCaptureController
 import com.inkwell.diary.page.DissolveLabStore
 import com.inkwell.diary.page.PageRenderer
@@ -458,7 +459,7 @@ internal class MainCommitController(
                     "reply done: ${provider.label} ${prefs.model}, ttft=$ttft, stream+render=${totalMs}ms, render=${replyRenderMs}ms, chars=${result.text.length}, visible=$streamedChars",
                 )
                 val generatedStrokes = if (useGeneratedStrokes) {
-                    renderGeneratedHandwritingReply(result.text)
+                    renderGeneratedHandwritingReply(result.text, afterStrokes = strokes)
                 } else {
                     null
                 }
@@ -511,13 +512,16 @@ internal class MainCommitController(
         }
     }
 
-    private suspend fun renderGeneratedHandwritingReply(text: String): List<InkStroke>? {
+    private suspend fun renderGeneratedHandwritingReply(
+        text: String,
+        afterStrokes: List<InkStroke> = emptyList(),
+    ): List<InkStroke>? {
         val serverUrl = prefs.handwritingSynthesisServerUrl
         if (serverUrl.isBlank()) {
             addDebug("handwriting synthesis skipped: server endpoint not set")
             return null
         }
-        val area = renderer.replyWritingArea()
+        val area = renderer.replyWritingArea(afterStrokes)
         if (area == null) {
             addDebug("handwriting synthesis skipped: renderer area unavailable")
             return null
@@ -534,7 +538,10 @@ internal class MainCommitController(
             left = area.left,
             top = area.top,
             maxWidth = area.maxWidth,
-            fontSizeSp = prefs.handwritingFontSizeSp,
+            fontSizeSp = handwritingSynthesisFontSizePx(
+                fontSizeSp = prefs.handwritingFontSizeSp,
+                scaledDensity = context.resources.displayMetrics.density * context.resources.configuration.fontScale,
+            ),
             strokeWidthMm = prefs.handwritingStrokeWidthMm,
         )
         return when (val result = handwritingSynthesisClient.synthesize(serverUrl, request)) {

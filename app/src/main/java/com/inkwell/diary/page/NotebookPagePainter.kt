@@ -29,6 +29,7 @@ internal class NotebookPagePainter(
     private val scriptPaint: TextPaint,
 ) {
     fun drawNotebookElements(c: Canvas, elements: List<NotebookElement>) {
+        val previousElements = mutableListOf<NotebookElement>()
         elements.forEach { element ->
             when (element) {
                 is InkElement -> {
@@ -40,9 +41,10 @@ internal class NotebookPagePainter(
                 }
                 is SketchElement -> {
                     resetReplyInkPaint()
-                    drawReplyInkStrokes(c, element.strokes)
+                    drawReplyInkStrokes(c, placedSketchStrokes(element, previousElements))
                 }
             }
+            previousElements.add(element)
         }
     }
 
@@ -59,7 +61,7 @@ internal class NotebookPagePainter(
                     cursor += layout.height + dp(REPLY_AFTER_REPLY_GAP_DP)
                 }
                 is SketchElement -> {
-                    val bottom = strokesBounds(element.strokes)?.bottom ?: cursor
+                    val bottom = placedSketchBounds(element, cursor)?.bottom ?: cursor
                     cursor = max(cursor, bottom + dp(REPLY_AFTER_INK_GAP_DP))
                 }
             }
@@ -129,6 +131,31 @@ internal class NotebookPagePainter(
             }
         }
         return bounds
+    }
+
+    private fun placedSketchStrokes(element: SketchElement, previousElements: List<NotebookElement>): List<InkStroke> {
+        if (!element.flowAfterPrevious) return element.strokes
+        val bounds = strokesBounds(element.strokes) ?: return element.strokes
+        val targetTop = nextReplyTop(previousElements)
+        val dy = (targetTop - bounds.top).coerceAtLeast(0f)
+        return if (dy <= 0f) element.strokes else translateStrokes(element.strokes, dy)
+    }
+
+    private fun placedSketchBounds(element: SketchElement, cursor: Float): RectF? {
+        val bounds = strokesBounds(element.strokes) ?: return null
+        if (!element.flowAfterPrevious) return bounds
+        val dy = (cursor - bounds.top).coerceAtLeast(0f)
+        return RectF(bounds.left, bounds.top + dy, bounds.right, bounds.bottom + dy)
+    }
+
+    private fun translateStrokes(strokes: List<InkStroke>, dy: Float): List<InkStroke> {
+        return strokes.map { stroke ->
+            stroke.copy(
+                points = stroke.points.map { point ->
+                    point.copy(y = point.y + dy)
+                },
+            )
+        }
     }
 
     fun notebookContentBottom(): Int {

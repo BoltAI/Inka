@@ -14,6 +14,7 @@ import json
 import math
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 
@@ -675,14 +676,23 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/handwriting":
             self.send_error(404)
             return
+        started_at = time.perf_counter()
         try:
             length = int(self.headers.get("content-length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             strokes = type(self).generator(payload)
         except Exception as exc:
             self.send_json({"error": exc.__class__.__name__}, status=400)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            print(f"POST /handwriting failed error={exc.__class__.__name__} elapsed_ms={elapsed_ms}", flush=True)
             return
         self.send_json({"strokes": strokes})
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        point_count = sum(len(stroke.get("points", [])) for stroke in strokes)
+        print(
+            f"POST /handwriting generated strokes={len(strokes)} points={point_count} elapsed_ms={elapsed_ms}",
+            flush=True,
+        )
 
     def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")

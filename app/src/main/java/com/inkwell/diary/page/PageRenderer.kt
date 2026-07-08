@@ -238,14 +238,18 @@ class PageRenderer(
         lastReplyBitmap = b.copy(Bitmap.Config.ARGB_8888, false)
     }
 
-    fun replyWritingArea(): ReplyWritingArea? {
+    fun replyWritingArea(afterStrokes: List<InkStroke> = emptyList()): ReplyWritingArea? {
         val b = bitmap ?: return null
         val margin = margin()
+        val top = maxOf(
+            replyTop().toFloat(),
+            notebookPainter.strokesBounds(afterStrokes)?.bottom?.plus(dp(REPLY_AFTER_INK_GAP_DP)) ?: replyTop().toFloat(),
+        ).toInt().coerceAtMost(notebookPainter.notebookContentBottom())
         return ReplyWritingArea(
             pageWidth = b.width,
             pageHeight = b.height,
             left = margin,
-            top = replyTop(),
+            top = top,
             maxWidth = (b.width - margin * 2).coerceAtLeast(1),
         )
     }

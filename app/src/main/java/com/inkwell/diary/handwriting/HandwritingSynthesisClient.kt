@@ -2,18 +2,21 @@ package com.inkwell.diary.handwriting
 
 import com.inkwell.diary.data.InkPoint
 import com.inkwell.diary.data.InkStroke
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 
 @Serializable
 data class HandwritingSynthesisRequest(
@@ -23,11 +26,21 @@ data class HandwritingSynthesisRequest(
     val left: Int,
     val top: Int,
     val maxWidth: Int,
+    // Wire name kept for existing servers; value is the target text size in page pixels.
     val fontSizeSp: Float,
     val strokeWidthMm: Float = DEFAULT_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM,
     val style: String = DEFAULT_STYLE,
     val seed: Long? = null,
 )
+
+fun handwritingSynthesisFontSizePx(fontSizeSp: Float, scaledDensity: Float): Float {
+    val safeSize = fontSizeSp.takeIf { it.isFinite() && it > 0f } ?: DEFAULT_SYNTHESIS_FONT_SIZE_SP
+    val safeDensity = scaledDensity.takeIf { it.isFinite() && it > 0f } ?: 1f
+    return (safeSize * safeDensity).coerceIn(
+        MIN_SYNTHESIS_FONT_SIZE_PX,
+        MAX_SYNTHESIS_FONT_SIZE_PX,
+    )
+}
 
 sealed class HandwritingSynthesisResult {
     data class Success(val strokes: List<InkStroke>) : HandwritingSynthesisResult()
@@ -55,9 +68,9 @@ class OkHttpHandwritingSynthesisClient(
     override suspend fun synthesize(
         serverUrl: String,
         request: HandwritingSynthesisRequest,
-    ): HandwritingSynthesisResult = withContext(Dispatchers.IO) {
+    ): HandwritingSynthesisResult {
         val endpoint = endpointFor(serverUrl)
-            ?: return@withContext HandwritingSynthesisResult.Failure("Server URL is missing or invalid")
+            ?: return HandwritingSynthesisResult.Failure("Server URL is missing or invalid")
         val body = json.encodeToString(HandwritingSynthesisRequest.serializer(), request)
             .toRequestBody(JSON_MEDIA_TYPE)
         val httpRequest = Request.Builder()
@@ -66,37 +79,66 @@ class OkHttpHandwritingSynthesisClient(
             .post(body)
             .build()
 
-        try {
-            client.newCall(httpRequest).execute().use { response ->
-                val responseText = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    return@use HandwritingSynthesisResult.Failure("HTTP ${response.code}")
-                }
-                val decoded = json.decodeFromString(HandwritingSynthesisResponse.serializer(), responseText)
-                val strokeWidthMm = request.strokeWidthMm
-                    .takeIf { it.isFinite() }
-                    ?.coerceIn(MIN_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM, MAX_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM)
-                    ?: DEFAULT_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM
-                val strokes = decoded.strokes.mapNotNull {
-                    it.toInkStroke(
-                        pageWidth = request.pageWidth,
-                        pageHeight = request.pageHeight,
-                        strokeWidthMm = strokeWidthMm,
-                    )
-                }
-                if (strokes.isEmpty()) {
-                    HandwritingSynthesisResult.Failure("Server returned no strokes")
-                } else {
-                    HandwritingSynthesisResult.Success(strokes)
-                }
+        return suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(httpRequest)
+            continuation.invokeOnCancellation {
+                call.cancel()
             }
-        } catch (error: InterruptedIOException) {
-            HandwritingSynthesisResult.Failure(error::class.java.simpleName)
-        } catch (error: IOException) {
-            HandwritingSynthesisResult.Failure(error::class.java.simpleName)
-        } catch (error: Exception) {
-            HandwritingSynthesisResult.Failure(error::class.java.simpleName)
+            call.enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, error: IOException) {
+                        if (!continuation.isActive) return
+                        continuation.resume(error.toFailure())
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        val result = try {
+                            response.use { decodeResponse(it, request) }
+                        } catch (error: InterruptedIOException) {
+                            error.toFailure()
+                        } catch (error: IOException) {
+                            error.toFailure()
+                        } catch (error: Exception) {
+                            error.toFailure()
+                        }
+                        if (continuation.isActive) {
+                            continuation.resume(result)
+                        }
+                    }
+                },
+            )
         }
+    }
+
+    private fun decodeResponse(
+        response: Response,
+        request: HandwritingSynthesisRequest,
+    ): HandwritingSynthesisResult {
+        val responseText = response.body?.string().orEmpty()
+        if (!response.isSuccessful) {
+            return HandwritingSynthesisResult.Failure("HTTP ${response.code}")
+        }
+        val decoded = json.decodeFromString(HandwritingSynthesisResponse.serializer(), responseText)
+        val strokeWidthMm = request.strokeWidthMm
+            .takeIf { it.isFinite() }
+            ?.coerceIn(MIN_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM, MAX_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM)
+            ?: DEFAULT_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM
+        val strokes = decoded.strokes.mapNotNull {
+            it.toInkStroke(
+                pageWidth = request.pageWidth,
+                pageHeight = request.pageHeight,
+                strokeWidthMm = strokeWidthMm,
+            )
+        }
+        return if (strokes.isEmpty()) {
+            HandwritingSynthesisResult.Failure("Server returned no strokes")
+        } else {
+            HandwritingSynthesisResult.Success(strokes)
+        }
+    }
+
+    private fun Exception.toFailure(): HandwritingSynthesisResult.Failure {
+        return HandwritingSynthesisResult.Failure(this::class.java.simpleName)
     }
 
     private fun endpointFor(serverUrl: String): String? {
@@ -155,6 +197,9 @@ private data class HandwritingPointPayload(
 )
 
 private const val DEFAULT_STYLE = "default"
+private const val DEFAULT_SYNTHESIS_FONT_SIZE_SP = 40f
+private const val MIN_SYNTHESIS_FONT_SIZE_PX = 28f
+private const val MAX_SYNTHESIS_FONT_SIZE_PX = 110f
 
 const val DEFAULT_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM = 0.30f
 const val MIN_SYNTHESIZED_HANDWRITING_STROKE_WIDTH_MM = 0.12f
