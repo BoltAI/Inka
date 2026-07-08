@@ -84,7 +84,7 @@ internal fun SettingsScreenContext.buildAiScreen(): View {
             title = "${provider.label} API Key",
             hint = "${provider.label} API key",
             initialValue = apiKeyOrBlank(provider),
-            masked = true,
+            masked = false,
             multiLine = false,
         ) { value ->
             prefs.provider = provider

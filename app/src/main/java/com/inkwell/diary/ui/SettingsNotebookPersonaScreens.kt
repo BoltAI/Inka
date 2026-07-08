@@ -5,10 +5,11 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.TextView
-import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
+import com.inkwell.diary.recognize.ModelDeleteOutcome
 import com.inkwell.diary.recognize.ModelDownloadOutcome
+import com.inkwell.diary.recognize.RecognitionModelsOutcome
 import kotlinx.coroutines.launch
 
 internal fun SettingsScreenContext.buildNotebookScreen(): View {
@@ -40,22 +41,6 @@ internal fun SettingsScreenContext.buildNotebookScreen(): View {
         "Storage",
         "Everything you write is stored on this device until you burn the notebook.",
     )
-
-    lateinit var fadeRow: ChoiceRowHandle
-    fadeRow = addChoiceRow(notebookGroup, "How the ink fades", prefs.inkFadeStyle.label) {
-        val styles = InkFadeStyle.entries.toList()
-        showChoiceDialog(
-            title = "How the ink fades",
-            choices = styles.map { it.label },
-            selectedIndex = styles.indexOf(prefs.inkFadeStyle).coerceAtLeast(0),
-        ) { index ->
-            val style = styles.getOrElse(index) { InkFadeStyle.default }
-            prefs.inkFadeStyle = style
-            fadeRow.valueText.text = style.label
-            callbacks.onInkFadeStyleChanged()
-            status.text = "Ink fade saved: ${style.label}."
-        }
-    }
 
     addChoiceRow(notebookGroup, "Burn this notebook", "Burn") {
         AlertDialog.Builder(context)
@@ -151,32 +136,170 @@ internal fun SettingsScreenContext.buildPersonaScreen(): View {
 internal fun SettingsScreenContext.buildRecognitionScreen(): View {
     val panel = scrollPanel(topPaddingDp = 12, horizontalPaddingDp = 46)
     val status = TextView(context).paperText(16f)
-    val group = groupedList()
-    panel.addView(group, fullWidth())
+    val languageGroup = groupedList()
+    val modelsGroup = groupedList()
+    panel.addView(languageGroup, fullWidth())
+    panel.addGap(14)
+    panel.addView(modelsGroup, fullWidth())
 
-    lateinit var languageRow: ChoiceRowHandle
-    languageRow = addChoiceRow(group, "Language", prefs.recognitionLanguage) {
-        showChoiceDialog(
-            title = "Recognition Language",
-            choices = languages,
-            selectedIndex = languages.indexOf(prefs.recognitionLanguage).coerceAtLeast(0),
-        ) { index ->
-            val language = languages.getOrElse(index) { Prefs.DEFAULT_LANGUAGE }
-            status.text = "Downloading $language model..."
-            scope.launch {
-                when (val outcome = recognitionService.ensureModel(language)) {
-                    ModelDownloadOutcome.Ready -> {
-                        prefs.recognitionLanguage = language
-                        languageRow.valueText.text = language
-                        status.text = "Language saved: $language."
-                    }
-                    is ModelDownloadOutcome.Failure -> {
-                        status.text = outcome.message
-                    }
+    val downloadedTags = linkedSetOf<String>()
+    val downloadingTags = mutableSetOf<String>()
+    val deletingTags = mutableSetOf<String>()
+    val failedDownloads = mutableMapOf<String, String>()
+    var checkingModels = true
+    lateinit var renderModelRows: () -> Unit
+    lateinit var startModelDownload: (RecognitionLanguageChoice) -> Unit
+    lateinit var deleteModel: (RecognitionLanguageChoice) -> Unit
+
+    fun choiceFor(tag: String): RecognitionLanguageChoice {
+        return RecognitionLanguages.choices.firstOrNull { it.tag == tag }
+            ?: RecognitionLanguages.choiceFor(Prefs.DEFAULT_LANGUAGE)
+    }
+
+    fun modelRowTags(): List<String> {
+        val tags = linkedSetOf(prefs.recognitionLanguage)
+        RecognitionLanguages.tags.forEach { tag ->
+            if (
+                tag in downloadingTags ||
+                tag in deletingTags ||
+                tag in failedDownloads ||
+                tag in downloadedTags
+            ) {
+                tags.add(tag)
+            }
+        }
+        return tags.toList()
+    }
+
+    renderModelRows = {
+        languageGroup.removeAllViews()
+        modelsGroup.removeAllViews()
+        addChoiceRow(languageGroup, "Language", choiceFor(prefs.recognitionLanguage).label) {
+            showChoiceDialog(
+                title = "Recognition Language",
+                choices = RecognitionLanguages.choices.map { it.label },
+                selectedIndex = RecognitionLanguages.choices
+                    .indexOfFirst { it.tag == prefs.recognitionLanguage }
+                    .coerceAtLeast(0),
+            ) { index ->
+                val choice = RecognitionLanguages.choices.getOrElse(index) {
+                    RecognitionLanguages.choiceFor(Prefs.DEFAULT_LANGUAGE)
+                }
+                prefs.recognitionLanguage = choice.tag
+                status.text = "Language saved: ${choice.label}."
+                startModelDownload(choice)
+            }
+        }
+        addSectionLabel(modelsGroup, "Models")
+
+        modelRowTags().forEach { tag ->
+            val choice = choiceFor(tag)
+            val isDownloading = tag in downloadingTags
+            val isDeleting = tag in deletingTags
+            val isDownloaded = tag in downloadedTags
+            val failedMessage = failedDownloads[tag]
+            val rowStatus = when {
+                isDownloading -> "Downloading..."
+                isDeleting -> "Deleting..."
+                failedMessage != null -> "Failed"
+                isDownloaded -> "Downloaded"
+                checkingModels -> "Checking..."
+                else -> "Not downloaded"
+            }
+            val action = when {
+                isDownloading || isDeleting || checkingModels -> null
+                isDownloaded -> "Delete"
+                failedMessage != null -> "Retry"
+                else -> "Download"
+            }
+            addModelRow(
+                group = modelsGroup,
+                label = choice.label,
+                status = rowStatus,
+                progressVisible = isDownloading || isDeleting,
+                actionLabel = action,
+            ) {
+                if (tag in downloadedTags) {
+                    deleteModel(choice)
+                } else {
+                    startModelDownload(choice)
                 }
             }
         }
     }
+
+    fun refreshDownloadedModels() {
+        checkingModels = true
+        renderModelRows()
+        scope.launch {
+            when (val outcome = recognitionService.downloadedModels(RecognitionLanguages.tags)) {
+                is RecognitionModelsOutcome.Ready -> {
+                    downloadedTags.clear()
+                    downloadedTags.addAll(outcome.languageTags)
+                    checkingModels = false
+                    status.text = ""
+                    renderModelRows()
+                }
+                is RecognitionModelsOutcome.Failure -> {
+                    checkingModels = false
+                    status.text = outcome.message
+                    renderModelRows()
+                }
+            }
+        }
+    }
+
+    startModelDownload = { choice ->
+        if (choice.tag in downloadedTags) {
+            failedDownloads.remove(choice.tag)
+            status.text = "${choice.label} is already downloaded."
+            renderModelRows()
+        } else {
+            failedDownloads.remove(choice.tag)
+            downloadingTags.add(choice.tag)
+            renderModelRows()
+            status.text = "Downloading ${choice.label}..."
+            scope.launch {
+                when (val outcome = recognitionService.ensureModel(choice.tag)) {
+                    ModelDownloadOutcome.Ready -> {
+                        downloadingTags.remove(choice.tag)
+                        downloadedTags.add(choice.tag)
+                        failedDownloads.remove(choice.tag)
+                        status.text = "${choice.label} downloaded."
+                    }
+                    is ModelDownloadOutcome.Failure -> {
+                        downloadingTags.remove(choice.tag)
+                        failedDownloads[choice.tag] = outcome.message
+                        status.text = outcome.message
+                    }
+                }
+                renderModelRows()
+            }
+        }
+    }
+
+    deleteModel = { choice ->
+        deletingTags.add(choice.tag)
+        failedDownloads.remove(choice.tag)
+        renderModelRows()
+        status.text = "Deleting ${choice.label}..."
+        scope.launch {
+            when (val outcome = recognitionService.deleteModel(choice.tag)) {
+                ModelDeleteOutcome.Deleted -> {
+                    deletingTags.remove(choice.tag)
+                    downloadedTags.remove(choice.tag)
+                    status.text = "${choice.label} deleted."
+                }
+                is ModelDeleteOutcome.Failure -> {
+                    deletingTags.remove(choice.tag)
+                    status.text = outcome.message
+                }
+            }
+            renderModelRows()
+        }
+    }
+
+    refreshDownloadedModels()
     panel.addGap(16)
     panel.addView(status, fullWidth())
     panel.addGap(36)

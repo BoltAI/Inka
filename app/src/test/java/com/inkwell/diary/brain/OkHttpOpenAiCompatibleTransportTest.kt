@@ -62,6 +62,49 @@ class OkHttpOpenAiCompatibleTransportTest {
     }
 
     @Test
+    fun `validates OpenAI compatible key with models endpoint`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"object":"list","data":[{"id":"gpt-5.4-mini"}]}"""),
+        )
+        val transport = OkHttpOpenAiCompatibleTransport(
+            baseUrl = server.url("/openai/v1/chat/completions").toString(),
+        )
+
+        val result = transport.validateKey(
+            apiKey = "test-key",
+            requestBody = requestBody(stream = false),
+        )
+
+        assertEquals(AnthropicResult.Success("OK"), result)
+        val recorded = server.takeRequest()
+        assertEquals("/openai/v1/models", recorded.path)
+        assertEquals("GET", recorded.method)
+        assertEquals("Bearer test-key", recorded.getHeader("Authorization"))
+    }
+
+    @Test
+    fun `maps OpenAI compatible validation auth errors to invalid key`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(401)
+                .setBody("""{"error":{"type":"authentication_error","message":"bad key"}}"""),
+        )
+        val transport = OkHttpOpenAiCompatibleTransport(
+            baseUrl = server.url("/openai/v1/chat/completions").toString(),
+        )
+
+        val result = transport.validateKey(
+            apiKey = "test-key",
+            requestBody = requestBody(stream = false),
+        )
+
+        assertTrue(result is AnthropicResult.Failure)
+        assertEquals(BrainErrorKind.InvalidKey, (result as AnthropicResult.Failure).kind)
+    }
+
+    @Test
     fun `streams OpenAI compatible text deltas`() = runTest {
         server.enqueue(
             MockResponse()

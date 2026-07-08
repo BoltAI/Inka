@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 
 class OkHttpOpenAiCompatibleTransport(
     private val baseUrl: String,
+    private val modelsUrl: String = defaultModelsUrl(baseUrl),
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
@@ -49,6 +50,33 @@ class OkHttpOpenAiCompatibleTransport(
             }
         }
         lastFailure ?: AnthropicResult.Failure(BrainErrorKind.Unknown)
+    }
+
+    override suspend fun validateKey(
+        apiKey: String,
+        requestBody: AnthropicRequestBody,
+    ): AnthropicResult = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(modelsUrl)
+            .header("Authorization", "Bearer $apiKey")
+            .get()
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                val responseText = response.body?.string().orEmpty()
+                if (response.isSuccessful) {
+                    AnthropicResult.Success("OK")
+                } else {
+                    response.toFailure(responseText)
+                }
+            }
+        } catch (e: InterruptedIOException) {
+            AnthropicResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: IOException) {
+            AnthropicResult.Failure(BrainErrorKind.Network, e::class.java.simpleName)
+        } catch (e: Exception) {
+            AnthropicResult.Failure(BrainErrorKind.Unknown, e::class.java.simpleName)
+        }
     }
 
     override suspend fun stream(
@@ -418,6 +446,14 @@ class OkHttpOpenAiCompatibleTransport(
         private const val BLANK_REPLY = "I heard you, but the ink came back blank."
         private const val DRAW_TOOL_NAME = "draw"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        private fun defaultModelsUrl(baseUrl: String): String {
+            return if (baseUrl.endsWith("/chat/completions")) {
+                baseUrl.removeSuffix("/chat/completions") + "/models"
+            } else {
+                baseUrl
+            }
+        }
     }
 }
 

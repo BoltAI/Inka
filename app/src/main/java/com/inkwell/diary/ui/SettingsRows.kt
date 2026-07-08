@@ -8,8 +8,10 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.TextView
 import com.inkwell.diary.R
@@ -260,6 +262,118 @@ internal class SettingsRows(
                 1f,
             ),
         )
+        group.addView(row, fullWidth())
+    }
+
+    fun addSectionLabel(group: LinearLayout, label: String) {
+        group.addView(
+            TextView(context).apply {
+                text = label
+                gravity = Gravity.CENTER_VERTICAL
+                includeFontPadding = false
+                setPadding(context.dp(26), context.dp(18), context.dp(26), context.dp(2))
+                paperText(17f, bold = true)
+                setTextColor(Color.rgb(70, 70, 70))
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                context.dp(50),
+            ),
+        )
+    }
+
+    fun addModelRow(
+        group: LinearLayout,
+        label: String,
+        status: String,
+        progressVisible: Boolean,
+        actionLabel: String?,
+        onAction: () -> Unit,
+    ) {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = context.dp(DESCRIPTION_ROW_HEIGHT_DP)
+            setPadding(context.dp(26), context.dp(8), context.dp(24), context.dp(8))
+        }
+        row.addView(
+            TextView(context).apply {
+                text = label
+                gravity = Gravity.CENTER_VERTICAL
+                includeFontPadding = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                paperText(23f)
+            },
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f,
+            ),
+        )
+        val statusColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+        }
+        statusColumn.addView(
+            TextView(context).apply {
+                text = status
+                gravity = Gravity.END
+                includeFontPadding = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                paperText(18f)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        statusColumn.addView(
+            ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                isIndeterminate = true
+                visibility = if (progressVisible) View.VISIBLE else View.GONE
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                context.dp(8),
+            ).apply {
+                topMargin = context.dp(10)
+            },
+        )
+        row.addView(
+            statusColumn,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f,
+            ).apply {
+                leftMargin = context.dp(18)
+            },
+        )
+        if (actionLabel != null) {
+            row.addView(
+                Button(context).apply {
+                    text = actionLabel
+                    setAllCaps(false)
+                    minHeight = 0
+                    minimumHeight = 0
+                    paperText(16f, bold = true)
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = context.dp(3).toFloat()
+                        setStroke(context.dp(2), Color.BLACK)
+                    }
+                    setOnClickListener { onAction() }
+                },
+                LinearLayout.LayoutParams(
+                    context.dp(128),
+                    context.dp(52),
+                ).apply {
+                    leftMargin = context.dp(18)
+                },
+            )
+        }
         group.addView(row, fullWidth())
     }
 

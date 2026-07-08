@@ -112,11 +112,6 @@ internal class MainSettingsController(
         addDebug("toolbar log button: ${if (prefs.showToolbarLogButton) "shown" else "hidden"}")
     }
 
-    override fun onInkFadeStyleChanged() {
-        renderer.setInkFadeStyle(prefs.inkFadeStyle)
-        addDebug("ink fade style: ${prefs.inkFadeStyle.label}")
-    }
-
     override fun onReplyStyleChanged() {
         renderTopBar()
         addDebug("reply style: ${prefs.replyStyle.label}, commit delay=${prefs.commitDelayMillis}ms")

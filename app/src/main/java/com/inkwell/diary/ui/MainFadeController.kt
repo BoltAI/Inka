@@ -5,7 +5,6 @@ import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReplyStyle
 import com.inkwell.diary.ink.InkCaptureController
 import com.inkwell.diary.page.PageRenderer
-import com.inkwell.diary.page.dissolveConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,7 +27,7 @@ internal class MainFadeController(
 
     fun schedulePromptFade(strokes: List<InkStroke>): Job {
         cancelPromptFade()
-        addDebug("prompt fade scheduled immediately")
+        addDebug("prompt ink hide scheduled immediately")
         val job = scope.launch {
             fadePrompt(strokes)
         }
@@ -53,15 +52,16 @@ internal class MainFadeController(
     }
 
     private suspend fun fadePrompt(strokes: List<InkStroke>) {
-        addDebug("prompt fade started")
-        captureController()?.hideRawInkLayer()
-        renderer.setInkFadeStyle(prefs.inkFadeStyle)
-        renderer.setUseOnyxInkReplayForFade(prefs.useOnyxFadeReplay)
-        addDebug("fade stroke renderer: ${if (prefs.useOnyxFadeReplay) "onyx" else "canvas"}")
-        renderer.setDissolveConfig(prefs.dissolveConfig())
-        renderer.fadeStrokes(strokes, includeFullOpacityFrame = false)
+        addDebug("prompt ink hold started, strokes=${strokes.size}")
+        delay(PROMPT_INK_HOLD_MS)
+        val capture = captureController()
+        if (capture?.isRawDrawingActive() == true) {
+            capture.clearRawInkLayer()
+        } else {
+            renderer.hideCapturedStrokes()
+        }
         showFadeDisclosureOnce()
-        addDebug("prompt fade done")
+        addDebug("prompt ink hidden")
     }
 
     private fun showFadeDisclosureOnce() {
@@ -77,8 +77,9 @@ internal class MainFadeController(
     }
 
     private companion object {
-        private const val FADE_DISCLOSURE = "The ink fades from the page, but the diary keeps every word. Flip back anytime."
+        private const val FADE_DISCLOSURE = "The ink leaves the page, but the diary keeps every word. Flip back anytime."
         private const val DRAWING_MODE_HINT = "Draw or write, then tap twice when it's my turn."
+        private const val PROMPT_INK_HOLD_MS = 900L
         private const val FADE_DISCLOSURE_VISIBLE_MS = 5_000L
     }
 }

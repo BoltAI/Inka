@@ -123,7 +123,7 @@ class ConversationEngine(
         )
         val transport = transports[provider]
             ?: return AnthropicResult.Failure(BrainErrorKind.BadRequest, "No transport for ${provider.label}")
-        return transport.complete(apiKey, body)
+        return transport.validateKey(apiKey, body)
     }
 
     suspend fun requestDrawing(

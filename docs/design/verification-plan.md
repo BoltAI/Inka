@@ -36,7 +36,7 @@ The smoke script should:
 
 ## Manual Release Checklist
 
-1. Cold start: fresh install, onboarding, first reply. Pass: the user reaches a reply without extra instructions.
+1. Cold start: fresh install and onboarding. Pass: the blank page appears immediately, the toolbar is logo-only, onboarding is a square high-contrast modal with no backdrop, API key setup can be skipped, and completion restores the full toolbar.
 2. Ink feel: write a full paragraph. Pass: no visible lag compared with BOOX Notes and no dead writing zones.
 3. Recognition set: write several short and multi-line prompts. Pass: ordinary legible writing produces sensible recognition.
 4. Fade or dissolve: film the commit animation. Pass: the original ink remains believable until it fades or dissolves, and the page lands clean.

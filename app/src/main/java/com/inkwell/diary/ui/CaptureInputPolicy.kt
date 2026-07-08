@@ -10,9 +10,10 @@ internal fun captureInputMode(
     settingsPanelOpen: Boolean,
     busy: Boolean,
     historyOpen: Boolean,
+    modalOverlayOpen: Boolean = false,
 ): CaptureInputMode {
     return when {
-        settingsPanelOpen || busy -> CaptureInputMode.Disabled
+        modalOverlayOpen || settingsPanelOpen || busy -> CaptureInputMode.Disabled
         historyOpen -> CaptureInputMode.ReadOnly
         else -> CaptureInputMode.Writable
     }

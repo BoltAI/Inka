@@ -22,7 +22,6 @@ class SettingsPanel(
         fun onClearConversation()
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
-        fun onInkFadeStyleChanged()
         fun onReplyStyleChanged()
         fun currentNotebookTitle(): String
         fun currentNotebookPersona(): Persona

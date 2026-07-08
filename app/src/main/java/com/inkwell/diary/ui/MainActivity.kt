@@ -18,12 +18,10 @@ import com.inkwell.diary.brain.ConversationEngine
 import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.NotebookStore
-import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReplyStyle
 import com.inkwell.diary.data.SecureStorageUnavailableException
 import com.inkwell.diary.data.StrokeStore
-import com.inkwell.diary.data.rebuildApiHistory
 import com.inkwell.diary.ink.CommitTimer
 import com.inkwell.diary.ink.InkCaptureController
 import com.inkwell.diary.page.EinkRefresher
@@ -59,6 +57,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
     private var lastPenUpElapsedMs: Long? = null
     private var lastCommitRequestedElapsedMs: Long? = null
     private var toolbarImmersive = false
+    private var onboardingOverlay: OnboardingFlow? = null
 
     private val root: FrameLayout get() = pageSurfaceController.root
     private val topBar: LinearLayout get() = pageSurfaceController.topBar
@@ -250,10 +249,11 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
             }
         })
 
-        if (prefs.onboardingComplete || pendingDebugReply != null) {
-            showPage()
-            startActiveNotebookLoad(renderOnComplete = true)
-        } else {
+        val firstRunOnboarding = !prefs.onboardingComplete && pendingDebugReply == null
+        toolbarImmersive = firstRunOnboarding
+        showPage()
+        startActiveNotebookLoad(renderOnComplete = true)
+        if (firstRunOnboarding) {
             showOnboarding()
         }
     }
@@ -311,29 +311,34 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
     }
 
     private fun showOnboarding() {
+        if (!pageSurfaceController.hasRoot || onboardingOverlay != null) return
         val flow = OnboardingFlow(
             context = this,
             prefs = prefs,
             engine = engine,
             recognitionService = recognitionService,
             scope = lifecycleScope,
-        ) {
-            completeOnboarding()
-        }
-        setContentView(flow)
+        ) { completeOnboarding() }
+        onboardingOverlay = flow
+        root.addView(
+            flow,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        flow.bringToFront()
+        applyCaptureStateForCurrentUi()
     }
 
     private fun completeOnboarding() {
-        prefs.persona = Persona.default
-        showPage()
-        lifecycleScope.launch {
-            val loaded = notebookController.loadActiveNotebook()
-            val defaulted = loaded.withPersona(Persona.default, System.currentTimeMillis())
-            notebookController.setActiveNotebook(defaulted)
-            prefs.persona = Persona.default
-            engine.replaceHistory(defaulted.rebuildApiHistory())
-            runCatching { notebookStore.save(defaulted) }
-        }
+        prefs.onboardingComplete = true
+        onboardingOverlay?.let { root.removeView(it) }
+        onboardingOverlay = null
+        toolbarImmersive = false
+        renderTopBar()
+        applyCaptureStateForCurrentUi()
+        root.post { einkRefresher.requestFullRefresh(root) }
     }
 
     private fun showPage() {
@@ -467,6 +472,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
                 settingsPanelOpen = settingsController.isOpen,
                 busy = busy,
                 historyOpen = historyController.isOpen,
+                modalOverlayOpen = onboardingOverlay != null,
             )
         ) {
             CaptureInputMode.Disabled -> controller.setInputEnabled(false)

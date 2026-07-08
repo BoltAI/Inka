@@ -28,7 +28,7 @@ internal class SettingsScreenContext(
     val callbacks: SettingsPanel.Callbacks,
     val navigate: (SettingsRoute) -> Unit,
 ) {
-    val languages = listOf("en-US", "es-ES", "fr-FR", "de-DE", "vi-VN")
+    val languages = RecognitionLanguages.tags
     val aiProviders = AiProvider.entries.toList()
     val handwritingFonts = HandwritingFont.entries.toList()
     val handwritingFontWeights = HandwritingFontWeight.entries.toList()
@@ -134,6 +134,21 @@ internal class SettingsScreenContext(
 
     fun addValueRow(group: LinearLayout, label: String, value: String) {
         rows.addValueRow(group, label, value)
+    }
+
+    fun addSectionLabel(group: LinearLayout, label: String) {
+        rows.addSectionLabel(group, label)
+    }
+
+    fun addModelRow(
+        group: LinearLayout,
+        label: String,
+        status: String,
+        progressVisible: Boolean,
+        actionLabel: String?,
+        onAction: () -> Unit,
+    ) {
+        rows.addModelRow(group, label, status, progressVisible, actionLabel, onAction)
     }
 
     fun addPreviewBlock(parent: LinearLayout, label: String, value: String): TextView {

@@ -3,6 +3,7 @@ package com.inkwell.diary.ui
 import android.content.Context
 import android.graphics.Color
 import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -39,10 +40,18 @@ fun Context.paperEditText(hintText: String, masked: Boolean = false): EditText {
         setTextColor(Color.rgb(17, 17, 17))
         setHintTextColor(Color.rgb(110, 110, 104))
         setSingleLine(!hintText.contains("prompt", ignoreCase = true))
-        inputType = if (masked) {
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        } else {
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        inputType = when {
+            masked -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            hintText.contains("api key", ignoreCase = true) ->
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            else -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+        if (masked) {
+            setSingleLine(true)
+            transformationMethod = PasswordTransformationMethod.getInstance()
+            typeface = android.graphics.Typeface.DEFAULT
+        } else if (hintText.contains("api key", ignoreCase = true)) {
+            setSingleLine(true)
         }
         setPadding(dp(12), dp(8), dp(12), dp(8))
     }

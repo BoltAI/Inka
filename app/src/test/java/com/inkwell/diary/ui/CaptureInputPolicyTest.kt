@@ -21,6 +21,19 @@ class CaptureInputPolicyTest {
     }
 
     @Test
+    fun `modal overlay disables capture`() {
+        assertEquals(
+            CaptureInputMode.Disabled,
+            captureInputMode(
+                settingsPanelOpen = false,
+                busy = false,
+                historyOpen = false,
+                modalOverlayOpen = true,
+            ),
+        )
+    }
+
+    @Test
     fun `history uses read-only capture`() {
         assertEquals(
             CaptureInputMode.ReadOnly,

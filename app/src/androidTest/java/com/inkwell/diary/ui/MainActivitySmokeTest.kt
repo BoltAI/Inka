@@ -25,11 +25,12 @@ import org.junit.Test
 
 class MainActivitySmokeTest {
     @Test
-    fun launchesIntoOnboardingWhenIncomplete() {
+    fun launchesIntoMainUiWithOnboardingOverlayWhenIncomplete() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val prefs = Prefs(context)
         val previousOnboardingState = prefs.onboardingComplete
+        val previousProvider = prefs.provider
         prefs.onboardingComplete = false
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -38,15 +39,41 @@ class MainActivitySmokeTest {
         try {
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             assertTrue(
-                "Expected onboarding headline to render",
+                "Expected logo-only toolbar to render behind onboarding",
                 waitUntil(timeoutMs = 10_000L) {
-                    activity?.containsVisibleText("A diary that writes back.") == true
+                    activity?.containsShownContentDescription("Toggle immersive mode") == true
                 },
             )
+            assertFalse(activity?.containsShownContentDescription("Settings") == true)
+            assertTrue(
+                "Expected first onboarding screen to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("A diary that writes back.") == true &&
+                        activity?.containsVisibleText("Begin") == true
+                },
+            )
+            assertTrue(activity.performClickOnVisibleText("Begin"))
+            assertTrue(
+                "Expected API key onboarding screen to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("Inka needs a key") == true &&
+                        activity?.containsVisibleText("Skip") == true
+                },
+            )
+            assertTrue(activity.performClickOnVisibleText("Skip"))
+            assertTrue(
+                "Expected recognition model onboarding screen to render",
+                waitUntil(timeoutMs = 10_000L) {
+                    activity?.containsVisibleText("Teaching Inka to read your hand") == true &&
+                        activity?.containsVisibleText("Download") == true
+                },
+            )
+            assertFalse("Expected onboarding to remain incomplete before model download", prefs.onboardingComplete)
         } finally {
             activity?.finish()
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
+            prefs.provider = previousProvider
         }
     }
 
@@ -178,6 +205,7 @@ class MainActivitySmokeTest {
                 waitUntil(timeoutMs = 10_000L) {
                     activity?.containsVisibleText("AI answer mode") == true &&
                         activity?.containsVisibleText("Text only") == true &&
+                        activity?.containsVisibleText("Reset onboarding") == true &&
                         activity?.containsVisibleText("Ink Replay Lab") == true
                 },
             )

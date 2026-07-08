@@ -287,6 +287,11 @@ class PageRenderer(
         render(full = false, dirtyRect = dirtyRect?.toPaddedRect())
     }
 
+    fun hideCapturedStrokes() {
+        drawPaper()
+        render(full = false)
+    }
+
     fun showNotebookElements(elements: List<NotebookElement>, fullRefresh: Boolean = true) {
         val c = canvas ?: return
         lastReplyBitmap?.recycle()

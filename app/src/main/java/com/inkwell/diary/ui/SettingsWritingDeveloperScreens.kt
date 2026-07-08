@@ -139,6 +139,7 @@ internal fun SettingsScreenContext.buildDeveloperScreen(): View {
     val status = TextView(context).paperText(16f)
     lateinit var synthesisServerRow: ChoiceRowHandle
     lateinit var handwritingModeRow: ChoiceRowHandle
+    lateinit var onboardingRow: ChoiceRowHandle
 
     lateinit var replyStyleRow: ChoiceRowHandle
     replyStyleRow = addChoiceRow(group, "AI answer mode", prefs.replyStyle.label) {
@@ -173,13 +174,21 @@ internal fun SettingsScreenContext.buildDeveloperScreen(): View {
         prefs.showToolbarLogButton = checked
         callbacks.onToolbarSettingsChanged()
     }
-    addToggleRow(
+    onboardingRow = addChoiceRow(
         group = group,
-        label = "Use Onyx alpha fade replay",
-        explanation = "Only applies to Simply fades. Turns to dust always uses the dissolve animation.",
-        checked = prefs.useOnyxFadeReplay,
-    ) { checked ->
-        prefs.useOnyxFadeReplay = checked
+        label = "Reset onboarding",
+        value = if (prefs.onboardingComplete) "Reset" else "Will show",
+    ) {
+        AlertDialog.Builder(context)
+            .setTitle("Reset onboarding")
+            .setMessage("Show onboarding again the next time Inka launches?")
+            .setPositiveButton("Reset") { _, _ ->
+                prefs.onboardingComplete = false
+                onboardingRow.valueText.text = "Will show"
+                status.text = "Onboarding will show on next launch."
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     val synthesisGroup = groupedList().apply {

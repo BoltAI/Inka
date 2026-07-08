@@ -73,6 +73,10 @@ sealed class AnthropicToolStreamResult {
 interface AnthropicTransport {
     suspend fun complete(apiKey: String, requestBody: AnthropicRequestBody): AnthropicResult
 
+    suspend fun validateKey(apiKey: String, requestBody: AnthropicRequestBody): AnthropicResult {
+        return complete(apiKey, requestBody)
+    }
+
     suspend fun completeRaw(apiKey: String, requestBody: JsonObject): AnthropicResult {
         return AnthropicResult.Failure(BrainErrorKind.BadRequest, "Raw content is not supported by this transport")
     }

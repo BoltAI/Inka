@@ -341,6 +341,7 @@ internal class MainCommitController(
             runCatching { DissolveLabStore.save(context, strokes) }
         }
         captureController()?.setInputEnabled(false, keepRawInkVisible = true)
+        val promptFade = schedulePromptFade(strokes)
         val recognitionStartedAt = SystemClock.elapsedRealtime()
         val afterCommit = lastCommitRequestedElapsedMs()
             ?.let { ", afterCommit=${recognitionStartedAt - it}ms" }
@@ -360,6 +361,7 @@ internal class MainCommitController(
         }
 
         if (recognized.isBlank()) {
+            promptFade.join()
             strokeStore.clear()
             renderer.showHint()
             captureController()?.setInputEnabled(true)
@@ -388,7 +390,6 @@ internal class MainCommitController(
         notebookStore.save(persistedNotebook)
         addDebug("exchange saved: notebook=${persistedNotebook.id}, exchanges=${persistedNotebook.exchanges.size}")
 
-        val promptFade = schedulePromptFade(strokes)
         val provider = prefs.provider
         val apiKey = apiKeyForRequest(provider)
         if (apiKey == null) {

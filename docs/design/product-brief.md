@@ -25,18 +25,19 @@ Every other feature supports that moment: onboarding, settings, error states, hi
 - Minimum Android: Android 10 or newer.
 - UI: native Kotlin Android Views.
 - Pen input: BOOX/Onyx raw drawing APIs when available, emulator fallback when not.
-- Recognition: offline handwriting recognition after model download.
+- Recognition: first-run handwriting recognition model download, then offline recognition once ready.
 - AI: bring-your-own-key provider setup.
 - Privacy: no project backend, accounts, analytics, telemetry, or crash reporting.
 
 ## First Run
 
-Onboarding should get the user to the first reply quickly:
+Onboarding should keep the user on the page while finishing only the setup that matters:
 
-1. Explain the premise in one short page.
-2. Ask for provider setup and validate the key immediately.
-3. Download the recognition model.
-4. Drop onto the blank page.
+1. Open the blank page immediately.
+2. Show a square, high-contrast modal without a dimmed backdrop.
+3. Keep the toolbar logo-only until onboarding is finished.
+4. Explain the premise briefly, then offer optional OpenAI key setup.
+5. Download the handwriting recognition model before dropping the user onto the full page.
 
 The user should not need to understand models, provider internals, or app architecture before trying the product.
 
@@ -80,7 +81,7 @@ The app is shippable when:
 
 - A clean clone builds a release APK with no private signing material.
 - A connected BOOX smoke test passes.
-- A first-time user can install, onboard, write, and receive a reply.
+- A first-time user can install, dismiss onboarding, write immediately, configure a provider, and receive a reply.
 - Live ink quality is close to BOOX Notes.
 - Recognition, provider errors, missing keys, and offline states recover without leaving the page stuck.
 - History is readable and read-only.

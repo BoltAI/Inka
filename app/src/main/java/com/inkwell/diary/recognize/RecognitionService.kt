@@ -21,8 +21,20 @@ sealed class ModelDownloadOutcome {
     data class Failure(val message: String) : ModelDownloadOutcome()
 }
 
+sealed class RecognitionModelsOutcome {
+    data class Ready(val languageTags: Set<String>) : RecognitionModelsOutcome()
+    data class Failure(val message: String) : RecognitionModelsOutcome()
+}
+
+sealed class ModelDeleteOutcome {
+    data object Deleted : ModelDeleteOutcome()
+    data class Failure(val message: String) : ModelDeleteOutcome()
+}
+
 interface RecognitionService {
     suspend fun ensureModel(languageTag: String): ModelDownloadOutcome
+    suspend fun downloadedModels(languageTags: List<String>): RecognitionModelsOutcome
+    suspend fun deleteModel(languageTag: String): ModelDeleteOutcome
     suspend fun recognize(message: InkMessage, languageTag: String): RecognitionOutcome
 }
 
@@ -40,6 +52,32 @@ class MlKitRecognitionService : RecognitionService {
             }
         } catch (e: Exception) {
             ModelDownloadOutcome.Failure(e.message ?: "Model download failed")
+        }
+    }
+
+    override suspend fun downloadedModels(languageTags: List<String>): RecognitionModelsOutcome {
+        val manager = RemoteModelManager.getInstance()
+        return try {
+            val downloadedModels = manager.getDownloadedModels(DigitalInkRecognitionModel::class.java).await()
+            val downloadedTags = languageTags.mapNotNull { tag ->
+                val model = modelFor(tag) ?: return@mapNotNull null
+                if (downloadedModels.contains(model)) tag else null
+            }.toSet()
+            RecognitionModelsOutcome.Ready(downloadedTags)
+        } catch (e: Exception) {
+            RecognitionModelsOutcome.Failure(e.message ?: "Model status unavailable")
+        }
+    }
+
+    override suspend fun deleteModel(languageTag: String): ModelDeleteOutcome {
+        val model = modelFor(languageTag)
+            ?: return ModelDeleteOutcome.Failure("No ML Kit model for $languageTag")
+        val manager = RemoteModelManager.getInstance()
+        return try {
+            manager.deleteDownloadedModel(model).await()
+            ModelDeleteOutcome.Deleted
+        } catch (e: Exception) {
+            ModelDeleteOutcome.Failure(e.message ?: "Model delete failed")
         }
     }
 
@@ -71,4 +109,3 @@ class MlKitRecognitionService : RecognitionService {
         return DigitalInkRecognitionModel.builder(identifier).build()
     }
 }
-
