@@ -300,6 +300,11 @@ internal fun SettingsScreenContext.buildAboutScreen(): View {
     panel.addView(group, fullWidth())
 
     addValueRow(group, "Version", BuildConfig.VERSION_NAME)
+    addChoiceRow(group, "Made by Daniel Nguyen", "Open") {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MAKER_PROFILE_URL)))
+        }
+    }
     addValueRow(group, "Onyx SDK", "onyxsdk-pen")
     addValueRow(group, "Recognition", "ML Kit Digital Ink")
     addChoiceRow(group, "Fonts", "Licenses") {

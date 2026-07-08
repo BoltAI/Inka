@@ -130,10 +130,6 @@ class PageRenderer(
         fadeController.setInkFadeStyle(style)
     }
 
-    fun setUseOnyxInkReplayForFade(enabled: Boolean) {
-        fadeController.setUseOnyxInkReplayForFade(enabled)
-    }
-
     fun setDissolveConfig(config: DissolveConfig) {
         fadeController.setDissolveConfig(config)
     }

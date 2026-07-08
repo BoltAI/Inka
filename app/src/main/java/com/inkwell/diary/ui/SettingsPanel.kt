@@ -20,6 +20,7 @@ class SettingsPanel(
     interface Callbacks {
         fun onCloseSettings()
         fun onClearConversation()
+        fun onInkFadeStyleChanged()
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
         fun onReplyStyleChanged()
@@ -80,6 +81,7 @@ class SettingsPanel(
     private fun render(screen: SettingsRoute) {
         currentScreen = screen
         chrome.setTitle(screen.title)
+        chrome.setMakerCreditVisible(screen == SettingsRoute.About)
         chrome.setContent(
             when (screen) {
                 SettingsRoute.Home -> screenContext.buildHomeScreen()

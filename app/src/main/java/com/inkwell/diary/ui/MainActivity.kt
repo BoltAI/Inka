@@ -232,7 +232,6 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
         )
         renderer.setHandwritingStyle(currentHandwritingFont(), prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)
         renderer.setInkFadeStyle(prefs.inkFadeStyle)
-        renderer.setUseOnyxInkReplayForFade(prefs.useOnyxFadeReplay)
         renderer.setDissolveConfig(prefs.dissolveConfig())
         pendingDebugReply = debugReplyFrom(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {

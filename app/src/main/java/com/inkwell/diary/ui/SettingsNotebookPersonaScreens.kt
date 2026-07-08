@@ -5,6 +5,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.TextView
+import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.recognize.ModelDeleteOutcome
@@ -34,6 +35,22 @@ internal fun SettingsScreenContext.buildNotebookScreen(): View {
     }
     addChoiceRow(notebookGroup, "Persona", callbacks.currentNotebookPersona().label) {
         navigate(SettingsRoute.Persona)
+    }
+
+    lateinit var inkFadeRow: ChoiceRowHandle
+    inkFadeRow = addChoiceRow(notebookGroup, "Ink Animation", prefs.inkFadeStyle.label) {
+        val styles = listOf(InkFadeStyle.SimplyFades, InkFadeStyle.TurnsToDust)
+        showChoiceDialog(
+            title = "Ink Animation",
+            choices = styles.map { it.label },
+            selectedIndex = styles.indexOf(prefs.inkFadeStyle).coerceAtLeast(0),
+        ) { index ->
+            val style = styles.getOrElse(index) { InkFadeStyle.default }
+            prefs.inkFadeStyle = style
+            callbacks.onInkFadeStyleChanged()
+            inkFadeRow.valueText.text = style.label
+            status.text = "Ink animation saved: ${style.label}."
+        }
     }
 
     addValueRow(

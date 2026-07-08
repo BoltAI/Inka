@@ -1,10 +1,12 @@
 package com.inkwell.diary.ui
 
 import com.inkwell.diary.data.InkStroke
+import com.inkwell.diary.data.InkFadeStyle
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReplyStyle
 import com.inkwell.diary.ink.InkCaptureController
 import com.inkwell.diary.page.PageRenderer
+import com.inkwell.diary.page.dissolveConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -54,14 +56,23 @@ internal class MainFadeController(
     private suspend fun fadePrompt(strokes: List<InkStroke>) {
         addDebug("prompt ink hold started, strokes=${strokes.size}")
         delay(PROMPT_INK_HOLD_MS)
-        val capture = captureController()
-        if (capture?.isRawDrawingActive() == true) {
-            capture.clearRawInkLayer()
+
+        if (prefs.inkFadeStyle == InkFadeStyle.TurnsToDust) {
+            captureController()?.hideRawInkLayer()
+            renderer.setInkFadeStyle(prefs.inkFadeStyle)
+            renderer.setDissolveConfig(prefs.dissolveConfig())
+            renderer.fadeStrokes(strokes, includeFullOpacityFrame = false)
+            addDebug("prompt ink burned")
         } else {
-            renderer.hideCapturedStrokes()
+            val capture = captureController()
+            if (capture?.isRawDrawingActive() == true) {
+                capture.clearRawInkLayer()
+            } else {
+                renderer.hideCapturedStrokes()
+            }
+            addDebug("prompt ink hidden")
         }
         showFadeDisclosureOnce()
-        addDebug("prompt ink hidden")
     }
 
     private fun showFadeDisclosureOnce() {

@@ -23,15 +23,10 @@ internal class PageFadeController(
     private var dissolveFadeAnimator = DissolveFadeAnimator()
     private var bitmapDissolveAnimator = BitmapDissolveAnimator()
     private var inkFadeStyle = InkFadeStyle.default
-    private var useOnyxInkReplayForFade = true
     private var activeFadeCleanup: (() -> Unit)? = null
 
     fun setInkFadeStyle(style: InkFadeStyle) {
         inkFadeStyle = style
-    }
-
-    fun setUseOnyxInkReplayForFade(enabled: Boolean) {
-        useOnyxInkReplayForFade = enabled
     }
 
     fun setDissolveConfig(config: DissolveConfig) {
@@ -117,12 +112,7 @@ internal class PageFadeController(
     }
 
     private fun drawSteppedFadeInkStrokes(c: Canvas, strokes: List<InkStroke>, paint: Paint) {
-        if (useOnyxInkReplayForFade && inkReplayRenderer.draw(c, strokes, paint)) {
-            Log.i(TAG, "stepped fade stroke renderer=onyx alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
-            return
-        }
-        val reason = if (useOnyxInkReplayForFade) "onyx_failed" else "disabled"
-        Log.i(TAG, "stepped fade stroke renderer=canvas reason=$reason alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
+        Log.i(TAG, "stepped fade stroke renderer=canvas alpha=${paint.alpha} strokes=${strokes.size} points=${strokes.sumOf { it.points.size }}")
         fallbackInkDrawer(c, strokes, paint)
     }
 

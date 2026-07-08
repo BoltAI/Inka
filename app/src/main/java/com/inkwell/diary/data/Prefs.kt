@@ -181,10 +181,6 @@ class Prefs(
         get() = plain.getBoolean(KEY_SHOW_TOOLBAR_LOG_BUTTON, false)
         set(value) = plain.edit { putBoolean(KEY_SHOW_TOOLBAR_LOG_BUTTON, value) }
 
-    var useOnyxFadeReplay: Boolean
-        get() = plain.getBoolean(KEY_USE_ONYX_FADE_REPLAY, true)
-        set(value) = plain.edit { putBoolean(KEY_USE_ONYX_FADE_REPLAY, value) }
-
     var dissolveCellSizePx: Int
         get() = plain.getInt(KEY_DISSOLVE_CELL_SIZE_PX, DEFAULT_DISSOLVE_CELL_SIZE_PX)
             .coerceIn(MIN_DISSOLVE_CELL_SIZE_PX, MAX_DISSOLVE_CELL_SIZE_PX)
@@ -419,7 +415,6 @@ class Prefs(
         private const val KEY_HANDWRITING_STROKE_WIDTH_MM = "handwriting_stroke_width_mm"
         private const val KEY_AUTO_REPLY_PAUSED = "auto_reply_paused"
         private const val KEY_SHOW_TOOLBAR_LOG_BUTTON = "show_toolbar_log_button"
-        private const val KEY_USE_ONYX_FADE_REPLAY = "use_onyx_fade_replay"
         private const val KEY_DISSOLVE_CELL_SIZE_PX = "dissolve_cell_size_px"
         private const val KEY_DISSOLVE_SWEEP_MS = "dissolve_sweep_ms"
         private const val KEY_DISSOLVE_CELL_LIFE_MS = "dissolve_cell_life_ms"

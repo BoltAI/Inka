@@ -94,6 +94,11 @@ internal class MainSettingsController(
         burnNotebook()
     }
 
+    override fun onInkFadeStyleChanged() {
+        renderer.setInkFadeStyle(prefs.inkFadeStyle)
+        addDebug("ink animation: ${prefs.inkFadeStyle.label}")
+    }
+
     override fun onHandwritingStyleChanged() {
         val font = currentHandwritingFont()
         renderer.setHandwritingStyle(font, prefs.handwritingFontSizeSp, prefs.handwritingFontWeight)

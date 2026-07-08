@@ -1,8 +1,8 @@
 package com.inkwell.diary.data
 
 enum class InkFadeStyle(val label: String) {
-    TurnsToDust("Turns to dust"),
-    SimplyFades("Simply fades"),
+    TurnsToDust("Burn"),
+    SimplyFades("Fade"),
     ;
 
     companion object {
