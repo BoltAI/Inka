@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERIAL="${1:-${ANDROID_SERIAL:-}}"
-APP_ID="com.inkwell.diary"
-TEST_ID="com.inkwell.diary.test"
+APP_ID="co.podzim.inka"
+TEST_ID="co.podzim.inka.test"
 RUNNER="${TEST_ID}/androidx.test.runner.AndroidJUnitRunner"
 LOG_DIR="${ROOT_DIR}/build/boox-smoke"
 INSTRUMENT_LOG="${LOG_DIR}/instrumentation.log"

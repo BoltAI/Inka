@@ -19,11 +19,11 @@ val hasReleaseSigning =
         releaseKeyPassword != null
 
 android {
-    namespace = "com.inkwell.diary"
+    namespace = "co.podzim.inka"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.inkwell.diary"
+        applicationId = "co.podzim.inka"
         minSdk = 29
         targetSdk = 35
         versionCode = 1
