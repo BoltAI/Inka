@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "inka-handwriting",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-08",
+  "containers": [
+    {
+      "class_name": "HandwritingContainer",
+      "image": "../../../Dockerfile",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "HANDWRITING_CONTAINER",
+        "class_name": "HandwritingContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["HandwritingContainer"]
+    }
+  ]
+}

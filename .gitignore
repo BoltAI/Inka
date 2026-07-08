@@ -44,3 +44,7 @@ local.properties
 *.temp
 *.swp
 *.swo
+
+# Node / Cloudflare Workers
+node_modules/
+.wrangler/
