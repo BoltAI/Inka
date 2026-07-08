@@ -28,9 +28,8 @@ internal class MainFadeController(
 
     fun schedulePromptFade(strokes: List<InkStroke>): Job {
         cancelPromptFade()
-        addDebug("prompt fade scheduled in ${PROMPT_FADE_DELAY_MS}ms")
+        addDebug("prompt fade scheduled immediately")
         val job = scope.launch {
-            delay(PROMPT_FADE_DELAY_MS)
             fadePrompt(strokes)
         }
         promptFadeJob = job
@@ -78,7 +77,6 @@ internal class MainFadeController(
     }
 
     private companion object {
-        private const val PROMPT_FADE_DELAY_MS = 500L
         private const val FADE_DISCLOSURE = "The ink fades from the page, but the diary keeps every word. Flip back anytime."
         private const val DRAWING_MODE_HINT = "Draw or write, then tap twice when it's my turn."
         private const val FADE_DISCLOSURE_VISIBLE_MS = 5_000L

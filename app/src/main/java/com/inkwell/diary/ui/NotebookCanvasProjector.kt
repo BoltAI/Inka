@@ -37,7 +37,7 @@ internal object NotebookCanvasProjector {
                             ),
                         )
                     }
-                    exchange.reply?.text?.takeIf { it.isNotBlank() }?.let { text ->
+                    exchange.reply?.text?.takeIf { exchange.reply.displayText && it.isNotBlank() }?.let { text ->
                         yield(
                             ReplyElement(
                                 text = text,

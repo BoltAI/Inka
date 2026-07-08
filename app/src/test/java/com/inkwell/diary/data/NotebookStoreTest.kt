@@ -345,6 +345,36 @@ class NotebookStoreTest {
     }
 
     @Test
+    fun `api history keeps text hidden from display for generated handwriting replies`() {
+        val notebook = Notebook(
+            id = DEFAULT_NOTEBOOK_ID,
+            title = DEFAULT_NOTEBOOK_TITLE,
+            personaId = Persona.Muse.name,
+            createdAt = 1L,
+            updatedAt = 2L,
+            exchanges = listOf(
+                Exchange(
+                    id = "exchange-10",
+                    committedAt = 10L,
+                    ink = NotebookInk(emptyList(), "hello"),
+                    reply = NotebookReply(
+                        text = "hello back",
+                        sketch = NotebookSketch(emptyList()),
+                        displayText = false,
+                        personaId = Persona.Muse.name,
+                        createdAt = 11L,
+                    ),
+                ),
+            ),
+        )
+
+        val history = notebook.rebuildApiHistory()
+
+        assertEquals(listOf("user", "assistant"), history.map { it.role })
+        assertEquals(listOf("hello", "hello back"), history.map { it.content })
+    }
+
+    @Test
     fun `api history caps unanswered exchanges at last twenty turns`() {
         val notebook = Notebook(
             id = DEFAULT_NOTEBOOK_ID,

@@ -40,17 +40,50 @@ class PrefsTest {
 
         assertEquals(HandwritingFont.DancingScript.key, prefs.handwritingFontKey)
         assertEquals(Prefs.DEFAULT_HANDWRITING_FONT_SIZE_SP, prefs.handwritingFontSizeSp, 0.01f)
+        assertEquals(Prefs.DEFAULT_HANDWRITING_STROKE_WIDTH_MM, prefs.handwritingStrokeWidthMm, 0.01f)
         assertEquals(HandwritingFontWeight.Regular.value, prefs.handwritingFontWeight)
 
-        prefs.handwritingFontSizeSp = 72f
+        prefs.handwritingFontSizeSp = 120f
+        prefs.handwritingStrokeWidthMm = 9f
         prefs.handwritingFontWeight = HandwritingFontWeight.Medium.value
 
         assertEquals(Prefs.MAX_HANDWRITING_FONT_SIZE_SP, prefs.handwritingFontSizeSp, 0.01f)
+        assertEquals(Prefs.MAX_HANDWRITING_STROKE_WIDTH_MM, prefs.handwritingStrokeWidthMm, 0.01f)
         assertEquals(HandwritingFontWeight.Medium.value, prefs.handwritingFontWeight)
 
         prefs.handwritingFontSizeSp = 10f
+        prefs.handwritingStrokeWidthMm = 0.01f
 
         assertEquals(Prefs.MIN_HANDWRITING_FONT_SIZE_SP, prefs.handwritingFontSizeSp, 0.01f)
+        assertEquals(Prefs.MIN_HANDWRITING_STROKE_WIDTH_MM, prefs.handwritingStrokeWidthMm, 0.01f)
+    }
+
+    @Test
+    fun `handwriting reply renderer and synthesis server persist`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertEquals(HandwritingReplyRenderer.Font, prefs.handwritingReplyRenderer)
+        assertEquals(HandwritingReplyMode.Font, HandwritingReplyMode.fromPrefs(prefs))
+        assertEquals(HandwritingSynthesisSource.Server, prefs.handwritingSynthesisSource)
+        assertEquals("", prefs.handwritingSynthesisServerUrl)
+
+        HandwritingReplyMode.Hosted.applyTo(prefs)
+        assertEquals(HandwritingReplyRenderer.GeneratedStrokes, prefs.handwritingReplyRenderer)
+        assertEquals(HandwritingSynthesisSource.Server, prefs.handwritingSynthesisSource)
+        assertEquals(HandwritingReplyMode.Hosted, HandwritingReplyMode.fromPrefs(prefs))
+
+        prefs.handwritingSynthesisServerUrl = " 192.168.1.25:8787 "
+
+        val persisted = Prefs(RuntimeEnvironment.getApplication())
+        assertEquals(HandwritingReplyRenderer.GeneratedStrokes, persisted.handwritingReplyRenderer)
+        assertEquals(HandwritingSynthesisSource.Server, persisted.handwritingSynthesisSource)
+        assertEquals(HandwritingReplyMode.Hosted, HandwritingReplyMode.fromPrefs(persisted))
+        assertEquals("192.168.1.25:8787", persisted.handwritingSynthesisServerUrl)
+
+        HandwritingReplyMode.Font.applyTo(persisted)
+
+        assertEquals(HandwritingReplyRenderer.Font, Prefs(RuntimeEnvironment.getApplication()).handwritingReplyRenderer)
+        assertEquals(HandwritingReplyMode.Font, HandwritingReplyMode.fromPrefs(Prefs(RuntimeEnvironment.getApplication())))
     }
 
     @Test

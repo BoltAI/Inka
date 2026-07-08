@@ -27,7 +27,12 @@ internal class NotebookHistoryPaginator(
             } else if (canvasId != null) {
                 return@forEach
             }
-            val baseElements = exchange.notebookElements(notebook.personaId).filterIsInstance<InkElement>()
+            val allElements = exchange.notebookElements(notebook.personaId)
+            if (exchange.reply?.displayText == false) {
+                pages.add(NotebookPage(index = pages.size, elements = allElements))
+                return@forEach
+            }
+            val baseElements = allElements.filterIsInstance<InkElement>()
             val reply = exchange.reply
             val replyText = reply?.text.orEmpty()
             if (replyText.isBlank()) {

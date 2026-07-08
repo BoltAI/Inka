@@ -1,6 +1,7 @@
 package com.inkwell.diary.ui
 
 import com.inkwell.diary.data.AiProvider
+import com.inkwell.diary.data.HandwritingReplyRenderer
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReasoningEffort
 import com.inkwell.diary.page.HandwritingFontWeight
@@ -16,6 +17,14 @@ internal object SettingsDisplay {
 
     fun fontWeightLabel(weightValue: Int): String {
         return HandwritingFontWeight.fromValue(weightValue).label
+    }
+
+    fun handwritingRendererLabel(renderer: HandwritingReplyRenderer): String {
+        return renderer.label
+    }
+
+    fun handwritingServerStatus(serverUrl: String): String {
+        return if (serverUrl.isBlank()) "Not set" else serverUrl
     }
 
     fun customPromptStatus(customPrompt: String): String {

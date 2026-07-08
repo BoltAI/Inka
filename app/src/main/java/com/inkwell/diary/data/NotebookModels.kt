@@ -49,6 +49,7 @@ data class NotebookInk(
 data class NotebookReply(
     val text: String = "",
     val sketch: NotebookSketch? = null,
+    val displayText: Boolean = true,
     val personaId: String,
     val createdAt: Long,
 )

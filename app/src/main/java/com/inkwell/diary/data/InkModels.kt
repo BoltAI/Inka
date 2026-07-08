@@ -107,14 +107,16 @@ fun drawInkStrokes(canvas: Canvas, strokes: List<InkStroke>, paint: Paint) {
     val fillPaint = Paint(strokePaint).apply {
         style = Paint.Style.FILL
     }
-    val baseWidth = paint.strokeWidth.coerceAtLeast(1f)
+    val paintBaseWidth = paint.strokeWidth.coerceAtLeast(1f)
 
     strokes.forEach { stroke ->
         val points = stroke.points
         if (points.isEmpty()) return@forEach
+        val baseWidth = strokeBaseWidth(paintBaseWidth, stroke)
         if (points.size == 1) {
             val p = points.first()
             val width = replayWidth(baseWidth, p.pressure)
+            fillPaint.strokeWidth = width
             canvas.drawCircle(p.x, p.y, width / 2f, fillPaint)
             return@forEach
         }
@@ -137,15 +139,17 @@ private fun drawDenseInkStrokes(canvas: Canvas, strokes: List<InkStroke>, paint:
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         isAntiAlias = true
-        strokeWidth = paint.strokeWidth.coerceAtLeast(1f)
     }
     val fillPaint = Paint(strokePaint).apply {
         style = Paint.Style.FILL
     }
+    val paintBaseWidth = paint.strokeWidth.coerceAtLeast(1f)
 
     strokes.forEach { stroke ->
         val points = stroke.points
         if (points.isEmpty()) return@forEach
+        strokePaint.strokeWidth = strokeBaseWidth(paintBaseWidth, stroke)
+        fillPaint.strokeWidth = strokePaint.strokeWidth
         if (points.size == 1) {
             val p = points.first()
             canvas.drawCircle(p.x, p.y, strokePaint.strokeWidth / 2f, fillPaint)
@@ -159,6 +163,11 @@ private fun drawDenseInkStrokes(canvas: Canvas, strokes: List<InkStroke>, paint:
         }
         canvas.drawPath(path, strokePaint)
     }
+}
+
+private fun strokeBaseWidth(paintBaseWidth: Float, stroke: InkStroke): Float {
+    val widthMm = stroke.strokeWidthMm.takeIf { it.isFinite() && it > 0f } ?: DEFAULT_INK_STROKE_WIDTH_MM
+    return (paintBaseWidth * (widthMm / DEFAULT_INK_STROKE_WIDTH_MM)).coerceAtLeast(1f)
 }
 
 private fun replayWidth(baseWidth: Float, rawPressure: Float): Float {

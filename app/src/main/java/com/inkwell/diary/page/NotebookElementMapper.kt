@@ -26,7 +26,7 @@ internal fun Exchange.notebookElements(fallbackPersonaId: String): List<Notebook
                 ),
             )
         }
-        reply?.text?.takeIf { it.isNotBlank() }?.let { text ->
+        reply?.text?.takeIf { reply?.displayText != false && it.isNotBlank() }?.let { text ->
             add(
                 ReplyElement(
                     text = text,

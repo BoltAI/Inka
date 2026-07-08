@@ -25,7 +25,7 @@ Every other feature supports that moment: onboarding, settings, error states, hi
 - Minimum Android: Android 10 or newer.
 - UI: native Kotlin Android Views.
 - Pen input: BOOX/Onyx raw drawing APIs when available, emulator fallback when not.
-- Recognition: on-device handwriting recognition after model download.
+- Recognition: offline handwriting recognition after model download.
 - AI: bring-your-own-key provider setup.
 - Privacy: no project backend, accounts, analytics, telemetry, or crash reporting.
 
@@ -35,7 +35,7 @@ Onboarding should get the user to the first reply quickly:
 
 1. Explain the premise in one short page.
 2. Ask for provider setup and validate the key immediately.
-3. Download the handwriting model.
+3. Download the recognition model.
 4. Drop onto the blank page.
 
 The user should not need to understand models, provider internals, or app architecture before trying the product.

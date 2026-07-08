@@ -117,9 +117,6 @@ class DissolveFadeAnimator(
     override val watchdogMs: Long = config.maxTotalMs + 1000L
 
     override suspend fun fade(strokes: List<InkStroke>, target: InkFadeTarget, options: InkFadeOptions) {
-        target.clearPage()
-        target.drawStrokes(target.pageCanvas, strokes, target.inkPaint)
-        target.render(false, null)
         val prepared = withContext(Dispatchers.Default) {
             prepare(strokes, target)
         } ?: run {
@@ -127,11 +124,21 @@ class DissolveFadeAnimator(
             target.render(true, null)
             return
         }
+        if (options.includeFullOpacityFrame) {
+            target.clearPage()
+            target.drawStrokes(target.pageCanvas, strokes, target.inkPaint)
+            target.render(false, null)
+        }
         target.registerCancelCleanup {
             target.clearRect(prepared.outputBounds)
         }
         try {
-            runDissolveFrames(prepared, target, config)
+            runDissolveFrames(
+                prepared = prepared,
+                target = target,
+                config = config,
+                initialElapsedMs = if (options.includeFullOpacityFrame) 0L else config.frameMs,
+            )
         } finally {
             target.registerCancelCleanup(null)
             prepared.recycle()
@@ -218,11 +225,12 @@ internal suspend fun runDissolveFrames(
     prepared: PreparedDissolve,
     target: InkFadeTarget,
     config: DissolveConfig,
+    initialElapsedMs: Long = 0L,
 ) {
     val startedAt = SystemClock.elapsedRealtime()
     val totalMs = config.compressedSweepMs + config.cellLifeMs
     while (true) {
-        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        val elapsed = SystemClock.elapsedRealtime() - startedAt + initialElapsedMs
         if (elapsed >= totalMs) break
         withContext(Dispatchers.Default) {
             prepared.renderFrame(elapsed, config)

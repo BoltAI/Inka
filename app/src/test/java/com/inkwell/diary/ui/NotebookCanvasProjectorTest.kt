@@ -85,6 +85,34 @@ class NotebookCanvasProjectorTest {
     }
 
     @Test
+    fun `canvas elements can hide stored text when reply is rendered as ink`() {
+        val userStroke = stroke(10f)
+        val sketchStroke = stroke(20f)
+        val notebook = notebook(
+            listOf(
+                exchange(
+                    committedAt = 30L,
+                    canvasId = "canvas-a",
+                    ink = NotebookInk(listOf(userStroke), "say hello"),
+                    reply = NotebookReply(
+                        text = "hello",
+                        sketch = NotebookSketch(listOf(sketchStroke)),
+                        displayText = false,
+                        personaId = Persona.Whisper.name,
+                        createdAt = 31L,
+                    ),
+                ),
+            ),
+        )
+
+        val elements = NotebookCanvasProjector.canvasElements(notebook, "canvas-a")
+
+        assertEquals(2, elements.size)
+        assertTrue(elements[0] is InkElement)
+        assertTrue(elements[1] is SketchElement)
+    }
+
+    @Test
     fun `current ink element uses caller timestamp and blank recognition`() {
         val stroke = stroke(12f)
 

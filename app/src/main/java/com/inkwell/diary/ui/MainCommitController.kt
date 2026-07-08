@@ -12,6 +12,7 @@ import com.inkwell.diary.brain.DrawingReplyResult
 import com.inkwell.diary.brain.ErrorMapper
 import com.inkwell.diary.data.AiProvider
 import com.inkwell.diary.data.Exchange
+import com.inkwell.diary.data.HandwritingReplyMode
 import com.inkwell.diary.data.InkStroke
 import com.inkwell.diary.data.Notebook
 import com.inkwell.diary.data.NotebookInk
@@ -24,6 +25,10 @@ import com.inkwell.diary.data.StrokeStore
 import com.inkwell.diary.data.newCanvasId
 import com.inkwell.diary.data.newExchangeId
 import com.inkwell.diary.data.rebuildApiHistory
+import com.inkwell.diary.handwriting.HandwritingSynthesisClient
+import com.inkwell.diary.handwriting.HandwritingSynthesisRequest
+import com.inkwell.diary.handwriting.HandwritingSynthesisResult
+import com.inkwell.diary.handwriting.OkHttpHandwritingSynthesisClient
 import com.inkwell.diary.ink.InkCaptureController
 import com.inkwell.diary.page.DissolveLabStore
 import com.inkwell.diary.page.PageRenderer
@@ -42,6 +47,7 @@ internal class MainCommitController(
     private val recognitionService: com.inkwell.diary.recognize.RecognitionService,
     private val notebookStore: NotebookStore,
     private val renderer: PageRenderer,
+    private val handwritingSynthesisClient: HandwritingSynthesisClient = OkHttpHandwritingSynthesisClient(),
     private val strokeStore: StrokeStore,
     private val surfaceView: () -> SurfaceView,
     private val replyOverlay: () -> ReplyOverlayView,
@@ -418,22 +424,27 @@ internal class MainCommitController(
             provider = provider,
             reasoningEffort = prefs.reasoningEffort,
         )
-        val result = engine.streamMessage(settings, recognized) { delta ->
-            if (delta.isEmpty()) return@streamMessage
-            promptFade.join()
-            withContext(Dispatchers.Main) {
-                if (!replyStarted) {
-                    val deltaAt = SystemClock.elapsedRealtime()
-                    firstReplyDeltaAt = deltaAt
-                    addDebug("first reply delta, ttft=${deltaAt - aiStartedAt}ms")
-                    setStatus("Reply")
-                    replyOverlay().beginReply()
-                    replyStarted = true
+        val useGeneratedStrokes = HandwritingReplyMode.fromPrefs(prefs).usesGeneratedStrokes
+        val result = if (useGeneratedStrokes) {
+            engine.sendMessage(settings, recognized)
+        } else {
+            engine.streamMessage(settings, recognized) { delta ->
+                if (delta.isEmpty()) return@streamMessage
+                promptFade.join()
+                withContext(Dispatchers.Main) {
+                    if (!replyStarted) {
+                        val deltaAt = SystemClock.elapsedRealtime()
+                        firstReplyDeltaAt = deltaAt
+                        addDebug("first reply delta, ttft=${deltaAt - aiStartedAt}ms")
+                        setStatus("Reply")
+                        replyOverlay().beginReply()
+                        replyStarted = true
+                    }
+                    val renderStartedAt = SystemClock.elapsedRealtime()
+                    writeReplyDelta(delta)
+                    replyRenderMs += SystemClock.elapsedRealtime() - renderStartedAt
+                    streamedChars += delta.length
                 }
-                val renderStartedAt = SystemClock.elapsedRealtime()
-                writeReplyDelta(delta)
-                replyRenderMs += SystemClock.elapsedRealtime() - renderStartedAt
-                streamedChars += delta.length
             }
         }
 
@@ -445,7 +456,12 @@ internal class MainCommitController(
                 addDebug(
                     "reply done: ${provider.label} ${prefs.model}, ttft=$ttft, stream+render=${totalMs}ms, render=${replyRenderMs}ms, chars=${result.text.length}, visible=$streamedChars",
                 )
-                if (!replyStarted) {
+                val generatedStrokes = if (useGeneratedStrokes) {
+                    renderGeneratedHandwritingReply(result.text)
+                } else {
+                    null
+                }
+                if (generatedStrokes == null && !replyStarted) {
                     setStatus("Reply")
                     replyOverlay().revealReply(result.text)
                 }
@@ -456,6 +472,8 @@ internal class MainCommitController(
                         exchange.copy(
                             reply = NotebookReply(
                                 text = result.text,
+                                sketch = generatedStrokes?.let { NotebookSketch(it) },
+                                displayText = generatedStrokes == null,
                                 personaId = prefs.persona.name,
                                 createdAt = savedAt,
                             ),
@@ -489,6 +507,53 @@ internal class MainCommitController(
             "${prefs.systemPrompt()}\n\nThe voice of the diary has changed."
         } else {
             prefs.systemPrompt()
+        }
+    }
+
+    private suspend fun renderGeneratedHandwritingReply(text: String): List<InkStroke>? {
+        val serverUrl = prefs.handwritingSynthesisServerUrl
+        if (serverUrl.isBlank()) {
+            addDebug("handwriting synthesis skipped: server endpoint not set")
+            return null
+        }
+        val area = renderer.replyWritingArea()
+        if (area == null) {
+            addDebug("handwriting synthesis skipped: renderer area unavailable")
+            return null
+        }
+
+        setStatus("Writing")
+        val startedAt = SystemClock.elapsedRealtime()
+        val sourceLabel = serverUrl.shortForDebug(80)
+        addDebug("handwriting synthesis start: $sourceLabel, chars=${text.length}")
+        val request = HandwritingSynthesisRequest(
+            text = text,
+            pageWidth = area.pageWidth,
+            pageHeight = area.pageHeight,
+            left = area.left,
+            top = area.top,
+            maxWidth = area.maxWidth,
+            fontSizeSp = prefs.handwritingFontSizeSp,
+            strokeWidthMm = prefs.handwritingStrokeWidthMm,
+        )
+        return when (val result = handwritingSynthesisClient.synthesize(serverUrl, request)) {
+            is HandwritingSynthesisResult.Success -> {
+                addDebug(
+                    "handwriting synthesis done: strokes=${result.strokes.size}, points=${result.strokes.sumOf { it.points.size }}, total=${SystemClock.elapsedRealtime() - startedAt}ms",
+                )
+                withContext(Dispatchers.Main) {
+                    replyOverlay().clearReply()
+                    renderer.beginSketchReply()
+                    renderer.revealGeneratedHandwritingStrokes(result.strokes)
+                }
+                result.strokes
+            }
+            is HandwritingSynthesisResult.Failure -> {
+                addDebug(
+                    "handwriting synthesis failed: ${result.message.shortForDebug()}, total=${SystemClock.elapsedRealtime() - startedAt}ms",
+                )
+                null
+            }
         }
     }
 

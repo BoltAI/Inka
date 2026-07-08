@@ -30,10 +30,6 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["dissolveLabEnabled"] = "false"
-
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
     }
 
     signingConfigs {

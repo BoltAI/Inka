@@ -19,6 +19,7 @@ import com.inkwell.diary.data.NotebookSketch
 import com.inkwell.diary.data.Persona
 import com.inkwell.diary.data.ReplyElement
 import com.inkwell.diary.data.SketchElement
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -149,6 +150,78 @@ class PageRendererTest {
     }
 
     @Test
+    fun `history pages render generated handwriting strokes without duplicate reply text`() {
+        val renderer = PageRenderer(RuntimeEnvironment.getApplication())
+        val userStroke = InkStroke(
+            listOf(
+                InkPoint(x = 10f, y = 10f, pressure = 1f, timestampMs = 1L),
+                InkPoint(x = 20f, y = 20f, pressure = 1f, timestampMs = 2L),
+            ),
+        )
+        val aiStroke = InkStroke(
+            listOf(
+                InkPoint(x = 30f, y = 30f, pressure = 1f, timestampMs = 3L),
+                InkPoint(x = 40f, y = 40f, pressure = 1f, timestampMs = 4L),
+            ),
+        )
+        val notebook = notebook(
+            exchanges = listOf(
+                Exchange(
+                    id = "exchange-10",
+                    committedAt = 10L,
+                    ink = NotebookInk(listOf(userStroke), "say hello"),
+                    reply = NotebookReply(
+                        text = "hello",
+                        sketch = NotebookSketch(listOf(aiStroke)),
+                        displayText = false,
+                        personaId = Persona.Wit.name,
+                        createdAt = 11L,
+                    ),
+                ),
+            ),
+        )
+
+        val pages = renderer.historyPagesFor(notebook)
+
+        assertEquals(1, pages.size)
+        assertEquals(1, pages.single().elements.filterIsInstance<InkElement>().size)
+        assertEquals(1, pages.single().elements.filterIsInstance<SketchElement>().size)
+        assertEquals(0, pages.single().elements.filterIsInstance<ReplyElement>().size)
+    }
+
+    @Test
+    fun `generated handwriting replay paints long synthesized strokes`() = runTest {
+        val context = RuntimeEnvironment.getApplication()
+        val view = PageCanvasView(context).apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(420, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 420, 320)
+        }
+        val renderer = PageRenderer(context).apply {
+            attach(view, width = 420, height = 320)
+        }
+        val stroke = InkStroke(
+            points = List(64) { index ->
+                InkPoint(
+                    x = 40f + index * 4f,
+                    y = 150f + if (index % 2 == 0) 0f else 2f,
+                    pressure = 0.55f,
+                    timestampMs = index.toLong(),
+                )
+            },
+        )
+
+        renderer.beginSketchReply()
+        renderer.revealGeneratedHandwritingStrokes(listOf(stroke))
+
+        val rendered = view.presentedBitmapCopy()
+        assertNotNull(rendered)
+        assertTrue(rendered!!.hasNonTransparentInk())
+    }
+
+    @Test
     fun `boox renderer fallback renders visible persisted ink when native replay fails`() {
         val context = RuntimeEnvironment.getApplication()
         val view = PageCanvasView(context).apply {
@@ -216,6 +289,15 @@ class PageRendererTest {
         for (y in 0 until height) {
             for (x in 0 until width) {
                 if (getPixel(x, y) == Color.BLACK) return true
+            }
+        }
+        return false
+    }
+
+    private fun Bitmap.hasNonTransparentInk(): Boolean {
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                if (Color.alpha(getPixel(x, y)) > 0) return true
             }
         }
         return false

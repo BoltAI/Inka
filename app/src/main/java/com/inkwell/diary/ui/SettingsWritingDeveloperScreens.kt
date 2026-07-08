@@ -3,9 +3,11 @@ package com.inkwell.diary.ui
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Intent
+import android.net.Uri
 import android.view.View
 import android.widget.TextView
 import com.inkwell.diary.BuildConfig
+import com.inkwell.diary.data.HandwritingReplyMode
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.ReplyStyle
 import com.inkwell.diary.page.HandwritingFont
@@ -135,6 +137,8 @@ internal fun SettingsScreenContext.buildDeveloperScreen(): View {
     val group = groupedList()
     panel.addView(group, fullWidth())
     val status = TextView(context).paperText(16f)
+    lateinit var synthesisServerRow: ChoiceRowHandle
+    lateinit var handwritingModeRow: ChoiceRowHandle
 
     lateinit var replyStyleRow: ChoiceRowHandle
     replyStyleRow = addChoiceRow(group, "AI answer mode", prefs.replyStyle.label) {
@@ -177,6 +181,68 @@ internal fun SettingsScreenContext.buildDeveloperScreen(): View {
     ) { checked ->
         prefs.useOnyxFadeReplay = checked
     }
+
+    val synthesisGroup = groupedList().apply {
+        visibility = if (handwritingReplyMode().requiresServerEndpoint) View.VISIBLE else View.GONE
+    }
+    handwritingModeRow = addChoiceRow(
+        group = group,
+        label = "Experimental handwriting",
+        value = handwritingReplyMode().label,
+    ) {
+        val modes = HandwritingReplyMode.entries.toList()
+        showChoiceDialog(
+            title = "Experimental handwriting",
+            choices = modes.map { it.label },
+            selectedIndex = modes.indexOf(handwritingReplyMode()).coerceAtLeast(0),
+        ) { index ->
+            val mode = modes.getOrElse(index) { HandwritingReplyMode.default }
+            mode.applyTo(prefs)
+            handwritingModeRow.valueText.text = mode.label
+            synthesisGroup.visibility = if (mode.requiresServerEndpoint) View.VISIBLE else View.GONE
+            synthesisServerRow.valueText.text = SettingsDisplay.handwritingServerStatus(prefs.handwritingSynthesisServerUrl)
+            synthesisServerRow.warningIcon.visibility = if (handwritingServerWarningVisible()) View.VISIBLE else View.GONE
+            status.text = handwritingModeStatus(mode)
+        }
+    }
+
+    panel.addGap(14)
+    panel.addView(synthesisGroup, fullWidth())
+    synthesisServerRow = addChoiceRow(
+        group = synthesisGroup,
+        label = "Server Endpoint",
+        value = SettingsDisplay.handwritingServerStatus(prefs.handwritingSynthesisServerUrl),
+        warningVisible = handwritingServerWarningVisible(),
+    ) {
+        showTextInputDialog(
+            title = "Server Endpoint",
+            hint = "http://192.168.1.25:8878",
+            initialValue = prefs.handwritingSynthesisServerUrl,
+            masked = false,
+            multiLine = false,
+        ) { value ->
+            prefs.handwritingSynthesisServerUrl = value
+            synthesisServerRow.valueText.text = SettingsDisplay.handwritingServerStatus(prefs.handwritingSynthesisServerUrl)
+            synthesisServerRow.warningIcon.visibility = if (handwritingServerWarningVisible()) View.VISIBLE else View.GONE
+            status.text = if (prefs.handwritingSynthesisServerUrl.isBlank()) {
+                "Server endpoint cleared."
+            } else {
+                "Server endpoint saved."
+            }
+        }
+    }
+    addChoiceRow(synthesisGroup, "Setup Guide", "GitHub") {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(HANDWRITING_SERVER_SETUP_URL)))
+        }.onFailure {
+            status.text = "No browser is available to open the setup guide."
+        }
+    }
+    if (BuildConfig.DEBUG) {
+        addChoiceRow(group, "Handwriting Lab", "Open") {
+            context.startActivity(Intent(context, HandwritingLabActivity::class.java))
+        }
+    }
     if (BuildConfig.DEBUG) {
         addChoiceRow(group, "Dissolve Lab", "Open") {
             context.startActivity(Intent(context, DissolveLabActivity::class.java))
@@ -194,6 +260,30 @@ internal fun SettingsScreenContext.buildDeveloperScreen(): View {
     panel.addGap(36)
     return panelScrollView(panel)
 }
+
+private fun SettingsScreenContext.handwritingReplyMode(): HandwritingReplyMode {
+    return HandwritingReplyMode.fromPrefs(prefs)
+}
+
+private fun SettingsScreenContext.handwritingServerWarningVisible(): Boolean {
+    return handwritingReplyMode().requiresServerEndpoint && prefs.handwritingSynthesisServerUrl.isBlank()
+}
+
+private fun SettingsScreenContext.handwritingModeStatus(mode: HandwritingReplyMode): String {
+    return when (mode) {
+        HandwritingReplyMode.Font -> "Font renderer selected. Replies stay fast and local."
+        HandwritingReplyMode.Hosted -> {
+            if (prefs.handwritingSynthesisServerUrl.isBlank()) {
+                "Set a server endpoint before using hosted synthesis."
+            } else {
+                "Hosted synthesis selected."
+            }
+        }
+    }
+}
+
+private const val HANDWRITING_SERVER_SETUP_URL =
+    "https://github.com/BoltAI/Inka/blob/main/docs/design/handwriting-server-setup.md"
 
 internal fun SettingsScreenContext.buildAboutScreen(): View {
     val panel = scrollPanel(topPaddingDp = 12, horizontalPaddingDp = 46)

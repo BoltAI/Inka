@@ -147,6 +147,32 @@ class Prefs(
         )
         set(value) = plain.edit { putInt(KEY_HANDWRITING_FONT_WEIGHT, normalizeHandwritingFontWeight(value)) }
 
+    var handwritingReplyRenderer: HandwritingReplyRenderer
+        get() = HandwritingReplyRenderer.fromStoredName(
+            plain.getString(KEY_HANDWRITING_REPLY_RENDERER, HandwritingReplyRenderer.default.name),
+        )
+        set(value) = plain.edit { putString(KEY_HANDWRITING_REPLY_RENDERER, value.name) }
+
+    var handwritingSynthesisServerUrl: String
+        get() = plain.getString(KEY_HANDWRITING_SYNTHESIS_SERVER_URL, "").orEmpty()
+        set(value) = plain.edit { putString(KEY_HANDWRITING_SYNTHESIS_SERVER_URL, value.trim()) }
+
+    var handwritingSynthesisSource: HandwritingSynthesisSource
+        get() = HandwritingSynthesisSource.fromStoredName(
+            plain.getString(KEY_HANDWRITING_SYNTHESIS_SOURCE, HandwritingSynthesisSource.default.name),
+        )
+        set(value) = plain.edit { putString(KEY_HANDWRITING_SYNTHESIS_SOURCE, value.name) }
+
+    var handwritingStrokeWidthMm: Float
+        get() = plain.getFloat(KEY_HANDWRITING_STROKE_WIDTH_MM, DEFAULT_HANDWRITING_STROKE_WIDTH_MM)
+            .coerceIn(MIN_HANDWRITING_STROKE_WIDTH_MM, MAX_HANDWRITING_STROKE_WIDTH_MM)
+        set(value) = plain.edit {
+            putFloat(
+                KEY_HANDWRITING_STROKE_WIDTH_MM,
+                value.coerceIn(MIN_HANDWRITING_STROKE_WIDTH_MM, MAX_HANDWRITING_STROKE_WIDTH_MM),
+            )
+        }
+
     var autoReplyPaused: Boolean
         get() = plain.getBoolean(KEY_AUTO_REPLY_PAUSED, false)
         set(value) = plain.edit { putBoolean(KEY_AUTO_REPLY_PAUSED, value) }
@@ -330,8 +356,11 @@ class Prefs(
         const val MAX_COMMIT_DELAY_MILLIS = 10000L
         const val DEFAULT_HANDWRITING_FONT = "dancing_script"
         const val MIN_HANDWRITING_FONT_SIZE_SP = 28f
-        const val MAX_HANDWRITING_FONT_SIZE_SP = 70f
+        const val MAX_HANDWRITING_FONT_SIZE_SP = 90f
         const val DEFAULT_HANDWRITING_FONT_SIZE_SP = 40f
+        const val DEFAULT_HANDWRITING_STROKE_WIDTH_MM = 0.30f
+        const val MIN_HANDWRITING_STROKE_WIDTH_MM = 0.12f
+        const val MAX_HANDWRITING_STROKE_WIDTH_MM = 0.80f
         const val HANDWRITING_FONT_WEIGHT_REGULAR = 400
         const val HANDWRITING_FONT_WEIGHT_MEDIUM = 500
         const val HANDWRITING_FONT_WEIGHT_SEMIBOLD = 600
@@ -384,6 +413,10 @@ class Prefs(
         private const val KEY_HANDWRITING_FONT_SIZE_SP = "handwriting_font_size_sp"
         private const val KEY_HANDWRITING_FONT_BOLD = "handwriting_font_bold"
         private const val KEY_HANDWRITING_FONT_WEIGHT = "handwriting_font_weight"
+        private const val KEY_HANDWRITING_REPLY_RENDERER = "handwriting_reply_renderer"
+        private const val KEY_HANDWRITING_SYNTHESIS_SERVER_URL = "handwriting_synthesis_server_url"
+        private const val KEY_HANDWRITING_SYNTHESIS_SOURCE = "handwriting_synthesis_source"
+        private const val KEY_HANDWRITING_STROKE_WIDTH_MM = "handwriting_stroke_width_mm"
         private const val KEY_AUTO_REPLY_PAUSED = "auto_reply_paused"
         private const val KEY_SHOW_TOOLBAR_LOG_BUTTON = "show_toolbar_log_button"
         private const val KEY_USE_ONYX_FADE_REPLAY = "use_onyx_fade_replay"

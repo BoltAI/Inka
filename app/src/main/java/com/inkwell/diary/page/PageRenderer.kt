@@ -238,6 +238,18 @@ class PageRenderer(
         lastReplyBitmap = b.copy(Bitmap.Config.ARGB_8888, false)
     }
 
+    fun replyWritingArea(): ReplyWritingArea? {
+        val b = bitmap ?: return null
+        val margin = margin()
+        return ReplyWritingArea(
+            pageWidth = b.width,
+            pageHeight = b.height,
+            left = margin,
+            top = replyTop(),
+            maxWidth = (b.width - margin * 2).coerceAtLeast(1),
+        )
+    }
+
     fun showHint(text: String = "I couldn't read that - try again?") {
         drawPaper()
         val y = contentTopInsetPx + margin().toFloat() + scriptPaint.textSize
@@ -307,6 +319,33 @@ class PageRenderer(
         }
         if (caption.isNotBlank()) {
             appendSketchCaption(caption, drawn)
+        }
+        endSketchReply(fullRefresh = true)
+    }
+
+    suspend fun revealGeneratedHandwritingStrokes(strokes: List<InkStroke>) {
+        strokes.forEach { stroke ->
+            val points = stroke.points
+            if (points.size <= GENERATED_HANDWRITING_POINTS_PER_FRAME) {
+                appendSketchStroke(stroke)
+                delay(GENERATED_HANDWRITING_FRAME_MS)
+                return@forEach
+            }
+
+            var start = 0
+            while (start < points.size) {
+                val end = (start + GENERATED_HANDWRITING_POINTS_PER_FRAME).coerceAtMost(points.size)
+                val chunkPoints = if (start == 0) {
+                    points.subList(start, end)
+                } else {
+                    listOf(points[start - 1]) + points.subList(start, end)
+                }
+                appendSketchStroke(stroke.copy(points = chunkPoints))
+                start = end
+                if (start < points.size) {
+                    delay(GENERATED_HANDWRITING_FRAME_MS)
+                }
+            }
         }
         endSketchReply(fullRefresh = true)
     }
@@ -528,6 +567,8 @@ class PageRenderer(
         private val REPLY_INK_COLOR = Color.rgb(40, 84, 160)
         private const val STROKE_FADE_STEP_MS = 125L
         private const val REPLY_STROKE_GAP_MS = 150L
+        private const val GENERATED_HANDWRITING_POINTS_PER_FRAME = 18
+        private const val GENERATED_HANDWRITING_FRAME_MS = 18L
         private const val CAPTION_WORD_GAP_MS = 80L
         private const val FORCED_REPLY_CHUNK_CHARS = 120
         private const val TAG = "PageRenderer"
@@ -537,4 +578,12 @@ class PageRenderer(
 private data class PageCacheKey(
     val pageIndex: Int,
     val pageHash: Int,
+)
+
+data class ReplyWritingArea(
+    val pageWidth: Int,
+    val pageHeight: Int,
+    val left: Int,
+    val top: Int,
+    val maxWidth: Int,
 )

@@ -140,7 +140,7 @@ class OnboardingFlow(
         panel.addText("Handwriting model", 30f, bold = true)
         panel.addGap(12)
         panel.addText(
-            "Download the on-device handwriting model once. Recognition keeps working offline after the model is ready.",
+            "Download the handwriting recognition model once. Recognition keeps working offline after the model is ready.",
             18f,
         )
         panel.addGap(16)
