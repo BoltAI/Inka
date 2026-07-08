@@ -11,6 +11,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Spinner
@@ -35,10 +36,18 @@ class OnboardingFlow(
     private val scope: CoroutineScope,
     private val onDone: () -> Unit,
 ) : FrameLayout(context) {
+    private var apiKeySetupServer: ApiKeySetupServer? = null
+    private var apiKeyCheckInFlight = false
+
     init {
         isClickable = true
         setBackgroundColor(Color.TRANSPARENT)
         showIntro()
+    }
+
+    override fun onDetachedFromWindow() {
+        stopApiKeySetupServer()
+        super.onDetachedFromWindow()
     }
 
     private fun showIntro() {
@@ -60,14 +69,16 @@ class OnboardingFlow(
     }
 
     private fun showKey() {
+        stopApiKeySetupServer()
+        apiKeyCheckInFlight = false
         renderPanel {
             val content = contentColumn()
             content.addCenteredText("Inka needs a key", 35f, bold = true)
-            content.addGap(14)
+            content.addGap(10)
             content.addBodyText(
                 "Inka can think with OpenAI, so she needs your OpenAI API key. It is stored only on this device, and your words go directly to OpenAI.",
             )
-            content.addGap(18)
+            content.addGap(12)
 
             val status = TextView(context).paperText(19f).apply {
                 gravity = Gravity.CENTER
@@ -78,13 +89,16 @@ class OnboardingFlow(
                 minHeight = context.dp(62)
                 setText(apiKeyOrBlank(AiProvider.OpenAI, status))
             }
+            val buttons = keyButtonRow(input, status)
+            content.addView(phoneSetupRow(input, status, buttons.unlock, buttons.skip), fullWidthWrapContent())
+            content.addGap(12)
             content.addView(apiKeyRow(input), fullWidthWrapContent())
-            content.addGap(10)
+            content.addGap(8)
             content.addView(status, fullWidthWrapContent())
 
             addView(content, contentLayoutParams())
             addView(View(context), spacerLayoutParams())
-            addView(keyButtonRow(input, status), ctaLayoutParams())
+            addView(buttons.view, ctaLayoutParams())
         }
     }
 
@@ -160,49 +174,83 @@ class OnboardingFlow(
         }
     }
 
-    private fun keyButtonRow(input: EditText, status: TextView): LinearLayout {
+    private fun phoneSetupRow(
+        input: EditText,
+        status: TextView,
+        unlock: Button,
+        skip: Button,
+    ): LinearLayout {
+        val server = ApiKeySetupServer(
+            providerLabel = AiProvider.OpenAI.label,
+            model = prefs.model(AiProvider.OpenAI),
+            guideUrl = AiProvider.OpenAI.apiKeyGuideUrl(),
+        ) { apiKey ->
+            post {
+                input.setText(apiKey)
+                submitApiKey(
+                    apiKey = apiKey,
+                    status = status,
+                    unlock = unlock,
+                    skip = skip,
+                    startStatus = "Key received from phone. Checking...",
+                )
+            }
+        }
+        apiKeySetupServer = server
+        val setup = server.start()
+
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = phoneSetupBackground()
+            setPadding(context.dp(12), context.dp(12), context.dp(12), context.dp(12))
+
+            if (setup is ApiKeySetupServerStart.Ready) {
+                val qrSize = context.dp(116)
+                addView(
+                    ImageView(context).apply {
+                        setImageBitmap(qrBitmap(setup.url, qrSize))
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        contentDescription = "QR code for phone API key setup"
+                    },
+                    LinearLayout.LayoutParams(qrSize, qrSize),
+                )
+                addView(
+                    TextView(context).apply {
+                        text = "Scan with your phone to create or paste the key there. The tablet will save and check it."
+                        setLineSpacing(context.dp(3).toFloat(), 1f)
+                        paperText(18f)
+                    },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        leftMargin = context.dp(12)
+                    },
+                )
+            } else {
+                addView(
+                    TextView(context).apply {
+                        text = "Phone setup is unavailable on this network. Paste the key below."
+                        gravity = Gravity.CENTER
+                        paperText(18f)
+                    },
+                    fullWidthWrapContent(),
+                )
+            }
+        }
+    }
+
+    private fun keyButtonRow(input: EditText, status: TextView): KeyButtonRow {
         lateinit var unlock: Button
         lateinit var skip: Button
         unlock = primaryButton("Unlock") {
             val apiKey = input.text?.toString().orEmpty().trim()
-            if (apiKey.isBlank()) {
-                status.text = "Paste your OpenAI key or skip this for later."
-                return@primaryButton
-            }
-            unlock.text = "Checking..."
-            unlock.isEnabled = false
-            skip.isEnabled = false
-            status.text = ""
-            scope.launch {
-                when (val result = engine.validateKey(AiProvider.OpenAI, apiKey, prefs.model(AiProvider.OpenAI))) {
-                    is AnthropicResult.Success -> {
-                        try {
-                            prefs.provider = AiProvider.OpenAI
-                            prefs.setApiKey(AiProvider.OpenAI, apiKey)
-                            status.text = "The key turns."
-                            delay(650)
-                            showModelDownload()
-                        } catch (_: SecureStorageUnavailableException) {
-                            unlock.text = "Unlock"
-                            unlock.isEnabled = true
-                            skip.isEnabled = true
-                            status.text = "Secure storage is unavailable."
-                        }
-                    }
-                    is AnthropicResult.Failure -> {
-                        unlock.text = "Unlock"
-                        unlock.isEnabled = true
-                        skip.isEnabled = true
-                        status.text = keyFailureText(result)
-                    }
-                }
-            }
+            submitApiKey(apiKey, status, unlock, skip, startStatus = "")
         }
         skip = secondaryButton("Skip") {
+            stopApiKeySetupServer()
             prefs.provider = AiProvider.OpenAI
             showModelDownload()
         }
-        return LinearLayout(context).apply {
+        val view = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(
@@ -215,6 +263,53 @@ class OnboardingFlow(
                 unlock,
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f),
             )
+        }
+        return KeyButtonRow(view, unlock, skip)
+    }
+
+    private fun submitApiKey(
+        apiKey: String,
+        status: TextView,
+        unlock: Button,
+        skip: Button,
+        startStatus: String,
+    ) {
+        if (apiKeyCheckInFlight) return
+        if (apiKey.isBlank()) {
+            status.text = "Paste your OpenAI key or skip this for later."
+            return
+        }
+        apiKeyCheckInFlight = true
+        unlock.text = "Checking..."
+        unlock.isEnabled = false
+        skip.isEnabled = false
+        status.text = startStatus
+        scope.launch {
+            when (val result = engine.validateKey(AiProvider.OpenAI, apiKey, prefs.model(AiProvider.OpenAI))) {
+                is AnthropicResult.Success -> {
+                    try {
+                        prefs.provider = AiProvider.OpenAI
+                        prefs.setApiKey(AiProvider.OpenAI, apiKey)
+                        status.text = "The key turns."
+                        stopApiKeySetupServer()
+                        delay(650)
+                        showModelDownload()
+                    } catch (_: SecureStorageUnavailableException) {
+                        apiKeyCheckInFlight = false
+                        unlock.text = "Unlock"
+                        unlock.isEnabled = true
+                        skip.isEnabled = true
+                        status.text = "Secure storage is unavailable."
+                    }
+                }
+                is AnthropicResult.Failure -> {
+                    apiKeyCheckInFlight = false
+                    unlock.text = "Unlock"
+                    unlock.isEnabled = true
+                    skip.isEnabled = true
+                    status.text = keyFailureText(result)
+                }
+            }
         }
     }
 
@@ -361,6 +456,20 @@ class OnboardingFlow(
         }
     }
 
+    private fun phoneSetupBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = context.dp(8).toFloat()
+            setColor(Color.WHITE)
+            setStroke(context.dp(2), Color.BLACK)
+        }
+    }
+
+    private fun stopApiKeySetupServer() {
+        apiKeySetupServer?.close()
+        apiKeySetupServer = null
+    }
+
     private fun apiKeyOrBlank(provider: AiProvider, status: TextView): String {
         return try {
             prefs.apiKey(provider)
@@ -379,4 +488,10 @@ class OnboardingFlow(
             BrainErrorKind.Unknown -> "The key could not be checked. You can skip this for later."
         }
     }
+
+    private data class KeyButtonRow(
+        val view: LinearLayout,
+        val unlock: Button,
+        val skip: Button,
+    )
 }

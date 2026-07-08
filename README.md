@@ -23,7 +23,7 @@ Mostly, this exists because it was fun to build, and because I can wow my son wi
 - Local notebook history
 - Built-in writing personas
 - Native, reader-style UI for BOOX tablets
-- Bring-your-own-key AI provider setup
+- Bring-your-own-key AI provider setup, with phone-assisted QR setup
 - Built-in font rendering for replies by default
 - Optional experimental neural handwriting synthesis through a user-configured server
 - Optional experimental drawing replies in Developer settings
@@ -47,7 +47,7 @@ Inka uses BOOX pen APIs for the best writing feel. A normal Android emulator can
 3. Open the APK on the tablet.
 4. Allow installation from local files if Android asks.
 5. Launch **Inka**.
-6. Complete onboarding: choose a provider, paste your API key, and download the handwriting recognition model.
+6. Complete onboarding: scan the phone setup QR or paste your API key, then download the handwriting recognition model.
 7. Write on the blank page and pause.
 
 ### Build Debug APK From Source
@@ -118,8 +118,10 @@ Use the `.aab` for Google Play. Each Play upload needs a higher `versionCode` in
 - Tap the book button to read notebook history.
 - Tap the eraser to clear the live page.
 - Open Settings to change provider, model, handwriting, recognition language, and privacy-local notebook settings.
+- Use `Settings -> AI Settings -> Set Up by Phone` to scan a QR code, open a setup page on your phone, and send an API key directly to the tablet.
 
 Experimental drawing replies are hidden under `Settings -> Developer -> AI answer mode`.
+Developer settings also include `Reset onboarding`, which immediately clears the live page and starts onboarding again for testing setup flows.
 
 ## Experimental Handwriting Synthesis
 
@@ -185,6 +187,10 @@ This builds, installs, runs instrumentation smoke tests, relaunches the app, and
 - API keys are stored in encrypted Android preferences when available
 - Notebook data is stored locally in app-private storage
 - Handwriting recognition runs on-device after the model download
+- Phone-assisted API key setup starts a temporary local HTTP server on the
+  tablet while the QR setup screen is open. The phone sends the key directly to
+  the tablet on the local network; Inka saves it on the tablet and validates it
+  with the selected AI provider.
 - Experimental hosted handwriting synthesis sends generated reply text to the
   server endpoint you configure. The local Docker setup keeps that server on
   your own machine; a cloud endpoint should be treated as a privacy choice.

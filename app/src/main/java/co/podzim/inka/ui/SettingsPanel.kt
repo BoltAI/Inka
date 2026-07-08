@@ -24,6 +24,7 @@ class SettingsPanel(
         fun onHandwritingStyleChanged()
         fun onToolbarSettingsChanged()
         fun onReplyStyleChanged()
+        fun onResetOnboarding()
         fun currentNotebookTitle(): String
         fun currentNotebookPersona(): Persona
         fun onNotebookTitleChanged(title: String)

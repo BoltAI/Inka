@@ -34,6 +34,7 @@ internal class MainSettingsController(
     private val renderHistoryPage: () -> Unit,
     private val clearPage: () -> Unit,
     private val burnNotebook: () -> Unit,
+    private val resetOnboarding: () -> Unit,
     private val currentHandwritingFont: () -> HandwritingFont,
     private val startActiveNotebookLoad: () -> Unit,
     private val showDrawingModeHintIfNeeded: () -> Unit,
@@ -92,6 +93,11 @@ internal class MainSettingsController(
 
     override fun onBurnNotebook() {
         burnNotebook()
+    }
+
+    override fun onResetOnboarding() {
+        onCloseSettings()
+        resetOnboarding()
     }
 
     override fun onInkFadeStyleChanged() {

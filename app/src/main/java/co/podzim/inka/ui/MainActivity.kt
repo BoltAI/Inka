@@ -183,6 +183,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
             renderHistoryPage = { historyController.renderHistoryPage() },
             clearPage = { actionsController.clearPage() },
             burnNotebook = { actionsController.burnNotebook(dissolveHistoryPage = false) },
+            resetOnboarding = { resetOnboardingNow() },
             currentHandwritingFont = { currentHandwritingFont() },
             startActiveNotebookLoad = { startActiveNotebookLoad(renderOnComplete = true) },
             showDrawingModeHintIfNeeded = { fadeController.showDrawingModeHintIfNeeded() },
@@ -337,6 +338,23 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
         toolbarImmersive = false
         renderTopBar()
         applyCaptureStateForCurrentUi()
+        root.post { einkRefresher.requestFullRefresh(root) }
+    }
+
+    private fun resetOnboardingNow() {
+        prefs.onboardingComplete = false
+        pendingDebugReply = null
+        onboardingOverlay?.let { root.removeView(it) }
+        onboardingOverlay = null
+        if (historyController.isOpen) {
+            historyController.closeHistory()
+        }
+        actionsController.clearPage()
+        engine.clearHistory()
+        toolbarImmersive = true
+        renderTopBar()
+        addDebug("onboarding reset")
+        showOnboarding()
         root.post { einkRefresher.requestFullRefresh(root) }
     }
 

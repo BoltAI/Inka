@@ -3,8 +3,8 @@ package co.podzim.inka.ui
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.Color
 import android.net.Uri
 import android.text.SpannableString
 import android.text.Spanned
@@ -18,10 +18,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import co.podzim.inka.R
-import android.graphics.Bitmap
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import com.google.zxing.qrcode.QRCodeWriter
 
 internal class SettingsChrome(
     private val context: Context,
@@ -198,15 +194,3 @@ private const val MAKER_CREDIT_WIDTH_DP = 190
 private const val MAKER_QR_SIZE_DP = MAKER_CREDIT_WIDTH_DP
 private const val MAKER_CREDIT_MARGIN_DP = 28
 internal const val MAKER_PROFILE_URL = "https://x.com/daniel_nguyenx"
-
-private fun qrBitmap(content: String, sizePx: Int): Bitmap {
-    val hints = mapOf(EncodeHintType.MARGIN to 1)
-    val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
-    val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-    for (y in 0 until sizePx) {
-        for (x in 0 until sizePx) {
-            bitmap.setPixel(x, y, if (matrix[x, y]) Color.BLACK else Color.WHITE)
-        }
-    }
-    return bitmap
-}
