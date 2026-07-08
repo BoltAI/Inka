@@ -1,0 +1,14 @@
+.git
+.gradle
+.kotlin
+app/build
+build
+errors.log
+*.apk
+*.aab
+*.iml
+local.properties
+node_modules
+deploy/cloudflare/handwriting-worker/node_modules
+deploy/cloudflare/handwriting-worker/.wrangler
+deploy/cloudflare/handwriting-worker/dist

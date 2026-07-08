@@ -1,0 +1,21 @@
+services:
+  handwriting-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INKA_HANDWRITING_ENGINE: ${ENGINE:-pytorch}
+        TOOLKIT_REPO: ${TOOLKIT_REPO:-https://github.com/X-rayLaser/pytorch-handwriting-synthesis-toolkit.git}
+        TOOLKIT_REF: ${TOOLKIT_REF:-main}
+    image: ${INKA_HANDWRITING_IMAGE:-inka-handwriting-server:local}
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      ENGINE: ${ENGINE:-pytorch}
+      BIAS: ${BIAS:-0.8}
+      STEPS: ${STEPS:-1500}
+      DEVICE: ${DEVICE:-cpu}
+      SAMPLE_ATTEMPTS: ${SAMPLE_ATTEMPTS:-8}
+    ports:
+      - "${INKA_HANDWRITING_HOST_PORT:-8878}:8787"
+    restart: unless-stopped
