@@ -12,6 +12,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.lifecycle.lifecycleScope
 import com.inkwell.diary.data.Prefs
 import com.inkwell.diary.data.Prefs.Companion.DEFAULT_HANDWRITING_STROKE_WIDTH_MM
@@ -51,6 +52,11 @@ class HandwritingLabActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                finish()
+            }
+        })
 
         prefs = Prefs(this)
         labFontSizeSpValue = initialFontSizeSp()
@@ -85,11 +91,6 @@ class HandwritingLabActivity : ComponentActivity() {
         renderJob?.cancel()
         renderer.detach()
         super.onDestroy()
-    }
-
-    @Deprecated("Deprecated in Android framework; used here for API 29 compatibility.")
-    override fun onBackPressed() {
-        finish()
     }
 
     private fun runLab() {
