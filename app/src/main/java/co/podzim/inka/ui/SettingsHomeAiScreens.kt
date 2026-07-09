@@ -126,6 +126,7 @@ internal fun SettingsScreenContext.buildAiScreen(): View {
             setPadding(context.dp(24), context.dp(24), context.dp(24), 0)
         }
         var checking = false
+        var dialog: AlertDialog? = null
         var setupServer: ApiKeySetupServer? = null
         val server = ApiKeySetupServer(
             providerLabel = provider.label,
@@ -146,6 +147,7 @@ internal fun SettingsScreenContext.buildAiScreen(): View {
                                 refreshProviderRows()
                                 status.text = "${provider.label} key saved and validated."
                                 dialogStatus.text = "${provider.label} key saved and validated."
+                                dialog?.setTitle("Success")
                                 setupServer?.close()
                             } catch (_: SecureStorageUnavailableException) {
                                 checking = false
@@ -218,6 +220,7 @@ internal fun SettingsScreenContext.buildAiScreen(): View {
             .setNegativeButton("Close", null)
             .create()
             .apply {
+                dialog = this
                 setOnDismissListener { setupServer?.close() }
                 show()
             }
@@ -229,14 +232,15 @@ internal fun SettingsScreenContext.buildAiScreen(): View {
             choices = aiProviders.map { it.label },
             selectedIndex = aiProviders.indexOf(currentProvider).coerceAtLeast(0),
         ) { index ->
-            currentProvider = aiProviders.getOrElse(index) { AiProvider.Anthropic }
+            val selectedProvider = aiProviders.getOrElse(index) { AiProvider.Anthropic }
+            currentProvider = selectedProvider
             prefs.provider = currentProvider
             refreshProviderRows()
-            if (hasApiKey(currentProvider)) {
-                status.text = "${currentProvider.label} selected."
+            if (hasApiKey(selectedProvider)) {
+                status.text = "${selectedProvider.label} selected."
             } else {
-                status.text = "${currentProvider.label} API key is required."
-                panel.post { promptForApiKey(currentProvider) }
+                status.text = "${selectedProvider.label} API key is required."
+                panel.post { showPhoneApiKeySetup(selectedProvider) }
             }
         }
     }
