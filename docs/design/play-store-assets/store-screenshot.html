@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Play Store screenshot template (1080x1920 CSS px, 9:16)</title>
+<!--
+  Usage: open with query params, screenshot with headless Chrome.
+    ?img=<relative image path>&t1=<serif headline>&t2=<handwritten line>
+  Render at --window-size=1080,1920. Use --force-device-scale-factor=2
+  for the 10-inch tablet variant (outputs 2160x3840).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,800&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1080px;
+    height: 1920px;
+    background: #F8F7F0;
+    color: #111;
+    font-family: "Literata", Georgia, serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden;
+  }
+  .head {
+    height: 380px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    padding: 0 70px;
+  }
+  .t1 {
+    font-weight: 800;
+    font-size: 74px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+  .t2 {
+    margin-top: 14px;
+    font-family: "Caveat", cursive;
+    font-weight: 600;
+    font-size: 78px;
+    color: #333;
+  }
+  .frame {
+    border: 8px solid #111;
+    background: #fff;
+  }
+  .frame img { display: block; width: 1044px; height: auto; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div class="t1" id="t1"></div>
+    <div class="t2" id="t2"></div>
+  </div>
+  <div class="frame"><img id="img" alt=""></div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    document.getElementById("t1").textContent = p.get("t1") || "";
+    document.getElementById("t2").textContent = p.get("t2") || "";
+    document.getElementById("img").src = p.get("img") || "";
+  </script>
+</body>
+</html>

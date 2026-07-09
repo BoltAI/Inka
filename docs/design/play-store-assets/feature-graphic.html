@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inka feature graphic 1024x500</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,800&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: #888; }
+
+  .canvas {
+    width: 1024px;
+    height: 500px;
+    background: #F8F7F0;
+    color: #111;
+    font-family: "Literata", Georgia, serif;
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    padding: 0 56px 0 64px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .left { flex: 1; }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 26px;
+  }
+  .brand svg { display: block; }
+  .brand .name {
+    font-weight: 800;
+    font-size: 56px;
+    letter-spacing: 0.01em;
+  }
+
+  .tagline {
+    font-weight: 800;
+    font-size: 40px;
+    line-height: 1.22;
+    letter-spacing: -0.01em;
+  }
+  .tagline .hand {
+    font-family: "Caveat", cursive;
+    font-weight: 600;
+    font-size: 1.12em;
+    white-space: nowrap;
+  }
+
+  .sub {
+    margin-top: 22px;
+    font-weight: 500;
+    font-size: 24px;
+    color: #444;
+  }
+
+  /* right: notebook page */
+  .page {
+    flex: none;
+    width: 400px;
+    height: 380px;
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        #FFFFFF 0,
+        #FFFFFF 51px,
+        #D9D9D6 51px,
+        #D9D9D6 52px
+      );
+    border: 5px solid #111;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 34px 30px;
+  }
+  .page .you,
+  .page .inka {
+    font-family: "Caveat", cursive;
+    font-size: 36px;
+    line-height: 52px;
+  }
+  .page .you { font-weight: 600; }
+  .page .inka { color: #444; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="left">
+    <div class="brand">
+      <svg width="84" height="84" viewBox="18 18 72 72">
+        <rect x="18" y="18" width="72" height="72" fill="#F8F7F0" stroke="#111" stroke-width="4"/>
+        <g transform="translate(25.2 25.2) scale(1.2)" fill="none" stroke="#000000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11.999,41a32.85,32.85 0,0,0 16.68,-4.52c0.665,-0.39 0.61,-1.348 -0.081,-1.691L25,33c3.303,0 10,-1.337 10,-1.337c7.147,-6.948 10.78,-16.97 9.848,-26.842a1.85,1.85 0,0,0 -1.67,-1.67A33.2,33.2 0,0,0 28,5.25S26.348,9.142 26,11l-2.024,-2.817a0.98,0.98 0,0,0 -1.309,-0.271C13.264,13.687 7,23.36 7,36.5"/>
+          <path d="M3,45c5,-14.5 21,-27 34,-34"/>
+        </g>
+      </svg>
+      <div class="name">Inka</div>
+    </div>
+    <div class="tagline">Write with the pen.<br>The page <span class="hand">writes back.</span></div>
+    <div class="sub">AI daily journal for BOOX e-ink tablets</div>
+  </div>
+  <div class="page">
+    <div class="you">why is the sky blue?</div>
+    <div class="inka">Sunlight bumps into the air, and the blue part scatters everywhere...</div>
+  </div>
+</div>
+</body>
+</html>
