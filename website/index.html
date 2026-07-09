@@ -147,38 +147,26 @@
     color: var(--ink-soft);
   }
 
-  /* ---------- hero notebook / screenshot placeholder ---------- */
+  /* ---------- hero demo video ---------- */
 
-  .notebook {
-    margin-top: 2.75rem;
+  .demo {
+    margin: 2.75rem auto 0;
+    max-width: 21rem;
+  }
+
+  .demo video {
+    display: block;
+    width: 100%;
+    height: auto;
     border: 3px solid var(--ink);
-    /* hand-drawn wobble */
-    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
-    padding: 2.25rem 2rem 1.75rem;
-    background:
-      repeating-linear-gradient(
-        to bottom,
-        var(--paper) 0,
-        var(--paper) calc(2.6rem - 1px),
-        var(--rule) calc(2.6rem - 1px),
-        var(--rule) 2.6rem
-      );
   }
 
-  .notebook .you,
-  .notebook .inka {
-    font-family: var(--hand);
-    font-size: 1.9rem;
-    line-height: 2.6rem;
-  }
-  .notebook .inka { color: var(--ink-soft); }
-
-  .notebook-caption {
-    margin-top: 0.75rem;
+  .demo-caption {
+    margin-top: 0.6rem;
     font-family: var(--hand);
     font-size: 1.3rem;
-    color: var(--ink-faint);
-    text-align: right;
+    color: var(--ink-soft);
+    text-align: center;
   }
 
   /* ---------- sections ---------- */
@@ -350,8 +338,6 @@
     body { font-size: 1.15rem; }
     .features { grid-template-columns: 1fr; }
     .masthead-links a { width: 2.4rem; height: 2.4rem; }
-    .notebook { padding: 1.75rem 1.25rem 1.25rem; }
-    .notebook .you, .notebook .inka { font-size: 1.6rem; line-height: 2.6rem; }
   }
 </style>
 </head>
@@ -406,12 +392,15 @@
     </div>
     <p class="cta-note">→ free, open source, bring your own AI key</p>
 
-    <!-- Screenshot / demo video will replace this mock page later. -->
-    <figure class="notebook">
-      <div class="you">why is the sky blue?</div>
-      <div class="inka">Sunlight bumps into the air itself, and the blue
-        part of the light scatters everywhere, so the whole sky glows with it.</div>
-      <figcaption class="notebook-caption">(real screenshot coming soon... this is me doodling)</figcaption>
+    <figure class="demo">
+      <video controls muted playsinline loop preload="metadata"
+             poster="media/inka-ai-journal-boox-eink-demo-poster.jpg"
+             width="720" height="1280">
+        <source src="media/inka-ai-journal-boox-eink-demo.mp4" type="video/mp4">
+        Your browser can't play this video.
+        <a href="media/inka-ai-journal-boox-eink-demo.mp4">Download the demo</a> instead.
+      </video>
+      <figcaption class="demo-caption">18 seconds of the page writing back ↑</figcaption>
     </figure>
   </section>
 
