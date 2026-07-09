@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inka: write with the pen, the page writes back</title>
+<meta name="description" content="Inka is a pen-first AI journal experiment for BOOX e-ink tablets. Write with the pen, pause, and the page answers back in handwriting. No accounts, no analytics, bring your own API key.">
+<meta property="og:title" content="Inka: write with the pen, the page writes back">
+<meta property="og:description" content="A pen-first AI journal experiment for BOOX e-ink tablets. Write, pause, and the page answers back in handwriting.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,700;0,7..72,800;1,7..72,400;1,7..72,500&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  /*
+    Built for e-ink first: pure black on white, no animation, no fixed
+    elements, thick crisp borders, medium-large reading type. The only
+    JavaScript on the page drives the screenshot strip arrows.
+  */
+  :root {
+    --ink: #111111;
+    --ink-soft: #444444;
+    --ink-faint: #6e6e6e;
+    --paper: #ffffff;
+    --paper-shade: #f2f2f0;
+    --rule: #d9d9d6;
+    --serif: "Literata", "Bookerly", Georgia, serif;
+    --hand: "Caveat", cursive;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: var(--paper); }
+
+  body {
+    font-family: var(--serif);
+    font-size: 1.25rem;              /* 20px, comfortable on e-ink */
+    line-height: 1.75;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: auto;    /* keep edges crisp for e-ink */
+  }
+
+  .page {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+  a:hover { text-decoration-thickness: 3px; }
+
+  /* ---------- masthead ---------- */
+
+  header.masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 3px solid var(--ink);
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 1.6rem;
+    letter-spacing: 0.02em;
+  }
+
+  .masthead-links {
+    display: flex;
+    gap: 0.7rem;
+  }
+  .masthead-links a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 2.5px solid var(--ink);
+    color: var(--ink);
+  }
+  .masthead-links svg { fill: currentColor; }
+  .masthead-links a:hover { background: var(--ink); color: var(--paper); }
+
+  /* ---------- hero ---------- */
+
+  .hero { padding: 3rem 0 1rem; }
+
+  h1 {
+    font-size: clamp(2.4rem, 6vw, 3.4rem);
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    max-width: 16em;
+  }
+
+  h1 .hand-accent {
+    font-family: var(--hand);
+    font-weight: 600;
+    font-size: 1.08em;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  .hero-sub {
+    margin-top: 1.5rem;
+    font-size: 1.35rem;
+    max-width: 34em;
+    color: var(--ink-soft);
+  }
+
+  .hero-cta {
+    margin-top: 2.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem 1.75rem;
+  }
+
+  .play-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.9rem;
+    background: var(--ink);
+    color: var(--paper);
+    text-decoration: none;
+    padding: 1rem 1.75rem 1.05rem 1.4rem;
+    border: 3px solid var(--ink);
+  }
+  .play-button:hover { background: var(--paper); color: var(--ink); }
+  .play-button:hover .play-glyph { fill: var(--ink); }
+  .play-button .play-glyph { fill: var(--paper); flex: none; }
+  .play-button .lines { line-height: 1.25; }
+  .play-button .small { display: block; font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .play-button .big { display: block; font-size: 1.35rem; font-weight: 700; }
+
+  .cta-alt {
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+  }
+
+  .cta-note {
+    margin-top: 0.9rem;
+    font-family: var(--hand);
+    font-size: 1.3rem;
+    color: var(--ink-soft);
+  }
+
+  /* ---------- hero notebook / screenshot placeholder ---------- */
+
+  .notebook {
+    margin-top: 2.75rem;
+    border: 3px solid var(--ink);
+    /* hand-drawn wobble */
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 2.25rem 2rem 1.75rem;
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        var(--paper) 0,
+        var(--paper) calc(2.6rem - 1px),
+        var(--rule) calc(2.6rem - 1px),
+        var(--rule) 2.6rem
+      );
+  }
+
+  .notebook .you,
+  .notebook .inka {
+    font-family: var(--hand);
+    font-size: 1.9rem;
+    line-height: 2.6rem;
+  }
+  .notebook .inka { color: var(--ink-soft); }
+
+  .notebook-caption {
+    margin-top: 0.75rem;
+    font-family: var(--hand);
+    font-size: 1.3rem;
+    color: var(--ink-faint);
+    text-align: right;
+  }
+
+  /* ---------- sections ---------- */
+
+  section { padding-top: 3.5rem; }
+
+  h2 {
+    font-size: 1.9rem;
+    font-weight: 800;
+    line-height: 1.2;
+    padding-bottom: 0.6rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 3px solid var(--ink);
+  }
+
+  h2 .section-no {
+    font-family: var(--hand);
+    font-weight: 600;
+    font-size: 1.2em;
+    margin-right: 0.4rem;
+    color: var(--ink-soft);
+  }
+
+  p + p { margin-top: 1.1rem; }
+
+  .aside {
+    font-family: var(--hand);
+    font-size: 1.45rem;
+    line-height: 1.4;
+    color: var(--ink-soft);
+    margin: 1.5rem 0 0;
+    padding-left: 1.1rem;
+    border-left: 3px solid var(--ink);
+  }
+
+  /* how it works */
+  .steps { list-style: none; counter-reset: step; margin-top: 0.5rem; }
+  .steps li {
+    counter-increment: step;
+    display: flex;
+    gap: 1.25rem;
+    padding: 1.4rem 0;
+  }
+  .steps li + li { border-top: 1.5px solid var(--rule); }
+  .steps li::before {
+    content: counter(step) ".";
+    font-family: var(--hand);
+    font-weight: 600;
+    font-size: 2.2rem;
+    line-height: 1;
+    color: var(--ink);
+    flex: none;
+    width: 2.2rem;
+  }
+  .steps strong { font-weight: 700; }
+  .steps .step-body { max-width: 36em; }
+
+  /* features */
+  .features {
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem 2.5rem;
+    font-size: 1.15rem;
+  }
+  .features li {
+    padding-left: 1.9rem;
+    text-indent: -1.9rem;
+  }
+  .features li::before {
+    content: "✓";
+    font-weight: 700;
+    display: inline-block;
+    width: 1.9rem;
+    text-indent: 0;
+  }
+
+  /* screenshot strip */
+  .shots { margin-top: 2.75rem; }
+  .shots-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .shots-note {
+    font-family: var(--hand);
+    font-size: 1.45rem;
+    color: var(--ink-soft);
+  }
+  .shots-nav { display: flex; gap: 0.6rem; }
+  .shots-nav button {
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 2.5px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .shots-nav button:hover { background: var(--ink); color: var(--paper); }
+  .shots-strip {
+    display: flex;
+    gap: 1.1rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5rem;
+  }
+  .shot {
+    flex: none;
+    width: 14rem;
+    scroll-snap-align: start;
+  }
+  .shot a { display: block; }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 2.5px solid var(--ink);
+  }
+  .shot figcaption {
+    font-family: var(--hand);
+    font-size: 1.25rem;
+    color: var(--ink-soft);
+    text-align: center;
+    margin-top: 0.4rem;
+  }
+
+  /* privacy card */
+  .plain-box {
+    border: 3px solid var(--ink);
+    border-radius: 15px 255px 15px 225px / 225px 15px 255px 15px;
+    padding: 1.75rem 1.75rem 1.6rem;
+    background: var(--paper-shade);
+  }
+  .plain-box p { max-width: 36em; }
+
+  /* requirements */
+  .req { list-style: none; }
+  .req li { padding: 0.85rem 0; border-top: 1.5px solid var(--rule); }
+  .req li:last-child { border-bottom: 1.5px solid var(--rule); }
+  .req .label { font-weight: 700; }
+  .req .muted { color: var(--ink-soft); font-size: 1.05rem; }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 3px solid var(--ink);
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+  }
+  footer .links { margin-top: 0.5rem; }
+  footer .links a { margin-right: 1.5rem; }
+  footer .fine { margin-top: 1.25rem; font-size: 0.95rem; color: var(--ink-faint); }
+  footer .signoff {
+    font-family: var(--hand);
+    font-size: 1.4rem;
+    color: var(--ink);
+    margin-bottom: 0.75rem;
+  }
+
+  /* ---------- small screens ---------- */
+  @media (max-width: 40rem) {
+    body { font-size: 1.15rem; }
+    .features { grid-template-columns: 1fr; }
+    .masthead-links a { width: 2.4rem; height: 2.4rem; }
+    .notebook { padding: 1.75rem 1.25rem 1.25rem; }
+    .notebook .you, .notebook .inka { font-size: 1.6rem; line-height: 2.6rem; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="wordmark">Inka</div>
+    <nav class="masthead-links" aria-label="Useful links">
+      <a href="https://boltai.com" aria-label="BoltAI" title="BoltAI">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13.4 1 3.6 14.2h6.2L9.1 23l9.8-13.2h-6.2z"/>
+        </svg>
+      </a>
+      <a href="https://github.com/BoltAI/Inka" aria-label="GitHub" title="GitHub">
+        <svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+      </a>
+      <a href="https://x.com/daniel_nguyenx" aria-label="X (Twitter)" title="X (Twitter)">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+      </a>
+    </nav>
+  </header>
+
+  <!-- ============ hero ============ -->
+  <section class="hero">
+    <h1>Write with the pen.<br>The page <span class="hand-accent">writes&nbsp;back.</span></h1>
+
+    <p class="hero-sub">
+      Inka is a pen-first AI journal for BOOX e-ink tablets. Write on a blank
+      page, rest your hand, and a reply flows onto the paper in handwriting,
+      word by word, like the notebook is thinking with you.
+    </p>
+
+    <div class="hero-cta">
+      <a class="play-button" href="https://play.google.com/store/apps/details?id=co.podzim.inka">
+        <svg class="play-glyph" width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">
+          <path d="M1 1.7v26.6c0 .9 1 1.5 1.8 1L25 16.1c.8-.5.8-1.7 0-2.2L2.8.7C2-.2 1 .8 1 1.7z"/>
+        </svg>
+        <span class="lines">
+          <span class="small">Install with</span>
+          <span class="big">Google Play</span>
+        </span>
+      </a>
+      <span class="cta-alt">
+        or <a href="https://github.com/BoltAI/Inka/releases">sideload the APK</a><br>
+        from GitHub Releases
+      </span>
+    </div>
+    <p class="cta-note">→ free, open source, bring your own AI key</p>
+
+    <!-- Screenshot / demo video will replace this mock page later. -->
+    <figure class="notebook">
+      <div class="you">why is the sky blue?</div>
+      <div class="inka">Sunlight bumps into the air itself, and the blue
+        part of the light scatters everywhere, so the whole sky glows with it.</div>
+      <figcaption class="notebook-caption">(real screenshot coming soon... this is me doodling)</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ how it works ============ -->
+  <section id="how">
+    <h2><span class="section-no">①</span> How it works</h2>
+    <ol class="steps">
+      <li><div class="step-body"><strong>Write.</strong> Use the BOOX pen like you would in any paper notebook. No text boxes, no send button.</div></li>
+      <li><div class="step-body"><strong>Pause.</strong> Rest your hand for a moment. On-device handwriting recognition reads what you wrote and sends the text to your chosen AI provider, with your own API key.</div></li>
+      <li><div class="step-body"><strong>Read.</strong> The reply is written back onto the page, word by word, in a handwriting-style script tuned for e-ink.</div></li>
+    </ol>
+  </section>
+
+  <!-- ============ features ============ -->
+  <section id="features">
+    <h2><span class="section-no">②</span> What's in the box</h2>
+    <ul class="features">
+      <li>Pen-first writing on BOOX tablets</li>
+      <li>Handwritten replies, right on the page</li>
+      <li>Word-by-word reply animation</li>
+      <li>Ink fade &amp; dissolve after you finish</li>
+      <li>Local notebook history</li>
+      <li>Built-in writing personas</li>
+      <li>Reader-style UI made for e-ink</li>
+      <li>On-device handwriting recognition</li>
+      <li>Bring your own OpenAI, Anthropic, or Groq key</li>
+      <li>Phone-assisted QR setup for API keys</li>
+      <li>Adjustable reply handwriting style</li>
+      <li>Experimental neural handwriting synthesis</li>
+    </ul>
+
+    <div class="shots">
+      <div class="shots-head">
+        <p class="shots-note">a few pages from the app (tap one to open it full size) ↓</p>
+        <div class="shots-nav">
+          <button type="button" data-scroll="-1" aria-label="Scroll screenshots left">←</button>
+          <button type="button" data-scroll="1" aria-label="Scroll screenshots right">→</button>
+        </div>
+      </div>
+      <div class="shots-strip" id="shots-strip">
+        <figure class="shot">
+          <a href="screenshots/01-main-ui.png" target="_blank" rel="noopener">
+            <img src="screenshots/thumbs/01-main-ui.png" alt="Inka notebook page with handwriting" width="560" height="747" loading="lazy">
+          </a>
+          <figcaption>the notebook</figcaption>
+        </figure>
+        <figure class="shot">
+          <a href="screenshots/02-settings-main.png" target="_blank" rel="noopener">
+            <img src="screenshots/thumbs/02-settings-main.png" alt="Inka main settings screen" width="560" height="747" loading="lazy">
+          </a>
+          <figcaption>settings</figcaption>
+        </figure>
+        <figure class="shot">
+          <a href="screenshots/03-writing-settings.png" target="_blank" rel="noopener">
+            <img src="screenshots/thumbs/03-writing-settings.png" alt="Writing settings screen" width="560" height="747" loading="lazy">
+          </a>
+          <figcaption>writing style</figcaption>
+        </figure>
+        <figure class="shot">
+          <a href="screenshots/04-persona.png" target="_blank" rel="noopener">
+            <img src="screenshots/thumbs/04-persona.png" alt="Persona picker screen" width="560" height="747" loading="lazy">
+          </a>
+          <figcaption>personas</figcaption>
+        </figure>
+        <figure class="shot">
+          <a href="screenshots/05-ai-settings.png" target="_blank" rel="noopener">
+            <img src="screenshots/thumbs/05-ai-settings.png" alt="AI provider settings screen" width="560" height="747" loading="lazy">
+          </a>
+          <figcaption>AI setup</figcaption>
+        </figure>
+        <figure class="shot">
+          <a href="screenshots/06-about-inka.png" target="_blank" rel="noopener">
+            <img src="screenshots/thumbs/06-about-inka.png" alt="About Inka screen" width="560" height="747" loading="lazy">
+          </a>
+          <figcaption>about</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ why ============ -->
+  <section id="why">
+    <h2><span class="section-no">③</span> Why?</h2>
+    <p>
+      Hi, I'm <a href="https://x.com/daniel_nguyenx">Daniel</a>. Inspired by
+      Maxime Rivest's <a href="https://x.com/MaximeRivest/status/2073544461473169432">Riddle</a>,
+      I built Inka as an experiment: what does it feel like to talk to an AI
+      when there's no keyboard, no chat bubbles, no glowing screen, just a pen
+      and a quiet sheet of e-paper?
+    </p>
+    <p>
+      You write a question, a worry, or a diary entry. You pause. Inka reads
+      your handwriting on-device, asks the AI model you configured, and the
+      answer appears on the page in a flowing handwritten voice. Then the ink
+      of the old thoughts can gently fade away.
+    </p>
+    <p class="aside">
+      Honestly? It mostly exists because it was fun to build, and because I
+      get to wow my son with a magic notebook. This is a tinkering project,
+      not a startup.
+    </p>
+  </section>
+
+  <!-- ============ privacy ============ -->
+  <section id="privacy">
+    <h2><span class="section-no">④</span> The honest small print</h2>
+    <div class="plain-box">
+      <p>
+        <strong>No accounts. No ads. No analytics. No telemetry. No backend.</strong>
+      </p>
+      <p>
+        Your notebook lives in private storage on your tablet. Your API key is
+        stored in encrypted Android preferences. When you ask for a reply, the
+        recognized text goes directly from your device to the AI provider you
+        picked. Nothing passes through a server of mine, because there isn't one.
+      </p>
+    </div>
+    <p class="aside">→ the boring details live in the <a href="privacy/">privacy policy</a></p>
+  </section>
+
+  <!-- ============ requirements ============ -->
+  <section id="requirements">
+    <h2><span class="section-no">⑤</span> What you'll need</h2>
+    <ul class="req">
+      <li><span class="label">A BOOX e-ink tablet.</span> <span class="muted">Built and tested on the BOOX Note Air 5C. Other Android tablets may open it, but the pen feel and e-ink refresh are the whole point.</span></li>
+      <li><span class="label">Android 10 or newer.</span></li>
+      <li><span class="label">An API key</span> <span class="muted">from OpenAI, Anthropic, or Groq. Set it up in a minute by scanning a QR code with your phone.</span></li>
+      <li><span class="label">Network access</span> <span class="muted">for the AI replies. Handwriting recognition itself runs on the device.</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ footer ============ -->
+  <footer>
+    <p class="signoff">Daniel, still tinkering ✎</p>
+    <p>Made for the joy of it. If it makes someone's kid gasp at a magic notebook, mission accomplished.</p>
+    <p class="links">
+      <a href="https://github.com/BoltAI/Inka">GitHub</a>
+      <a href="https://x.com/daniel_nguyenx">X / Twitter</a>
+      <a href="privacy/">Privacy</a>
+    </p>
+    <p class="fine">
+      Brought to you by <a href="https://boltai.com">BoltAI</a>.
+      Inka is not affiliated with Onyx or BOOX. Google Play is a trademark of Google LLC.
+    </p>
+  </footer>
+
+</div>
+<script>
+  // Instant (non-smooth) scrolling on purpose: smooth scrolling smears on e-ink.
+  var strip = document.getElementById("shots-strip");
+  document.querySelectorAll(".shots-nav button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      strip.scrollBy({ left: Number(btn.dataset.scroll) * strip.clientWidth * 0.85, behavior: "auto" });
+    });
+  });
+</script>
+</body>
+</html>
