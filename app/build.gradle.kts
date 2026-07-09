@@ -22,6 +22,11 @@ android {
     namespace = "co.podzim.inka"
     compileSdk = 35
 
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     defaultConfig {
         applicationId = "co.podzim.inka"
         minSdk = 29
@@ -97,7 +102,7 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     implementation("com.onyx.android.sdk:onyxsdk-pen:1.5.4")
-    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
 
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
