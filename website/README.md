@@ -19,5 +19,4 @@ Deployed with Cloudflare Pages Git integration: framework preset None, no build 
 
 ## TODO
 
-- The Google Play link points at `co.podzim.inka`; it goes live once the store listing is published.
 - Deploy the folder to a public URL and update the privacy policy URL in the Play submission pack (`docs/design/play-store-submission/submission-pack.md`) to match.

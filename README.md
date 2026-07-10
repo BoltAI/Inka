@@ -40,7 +40,20 @@ Inka uses BOOX pen APIs for the best writing feel. A normal Android emulator can
 
 ## Install
 
-### Prebuilt APK
+### Google Play
+
+The preferred way to install Inka is from Google Play:
+
+https://play.google.com/store/apps/details?id=co.podzim.inka
+
+1. Open the Google Play listing on your BOOX tablet.
+2. Install **Inka**.
+3. Complete onboarding: scan the phone setup QR or paste your API key, then download the handwriting recognition model.
+4. Write on the blank page and pause.
+
+### Sideload Prebuilt APK
+
+If Google Play is not available on your device, you can sideload the APK:
 
 1. Download the latest APK from GitHub Releases.
 2. Copy the APK to your BOOX tablet.
