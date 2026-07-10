@@ -31,7 +31,9 @@ class MainActivitySmokeTest {
         val prefs = Prefs(context)
         val previousOnboardingState = prefs.onboardingComplete
         val previousProvider = prefs.provider
+        val previousUnsupportedDeviceWarning = prefs.hasAcknowledgedUnsupportedDeviceWarning
         prefs.onboardingComplete = false
+        prefs.hasAcknowledgedUnsupportedDeviceWarning = true
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
@@ -74,6 +76,7 @@ class MainActivitySmokeTest {
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
             prefs.provider = previousProvider
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = previousUnsupportedDeviceWarning
         }
     }
 
@@ -88,6 +91,7 @@ class MainActivitySmokeTest {
         val previousOnboardingState = prefs.onboardingComplete
         val previousPersona = prefs.persona
         val previousActiveNotebookId = prefs.activeNotebookId
+        val previousUnsupportedDeviceWarning = prefs.hasAcknowledgedUnsupportedDeviceWarning
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
@@ -96,6 +100,7 @@ class MainActivitySmokeTest {
             prefs.onboardingComplete = true
             prefs.persona = Persona.default
             prefs.activeNotebookId = SMOKE_DENSE_NOTEBOOK_ID
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = true
             store.save(denseNotebook(Persona.default, SMOKE_DENSE_NOTEBOOK_ID))
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
@@ -118,6 +123,7 @@ class MainActivitySmokeTest {
             prefs.onboardingComplete = previousOnboardingState
             prefs.persona = previousPersona
             prefs.activeNotebookId = previousActiveNotebookId
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = previousUnsupportedDeviceWarning
             if (originalNotebook != null) {
                 notebookFile.parentFile?.mkdirs()
                 notebookFile.writeBytes(originalNotebook)
@@ -134,6 +140,7 @@ class MainActivitySmokeTest {
         val prefs = Prefs(context)
         val previousOnboardingState = prefs.onboardingComplete
         val previousToolbarLogButton = prefs.showToolbarLogButton
+        val previousUnsupportedDeviceWarning = prefs.hasAcknowledgedUnsupportedDeviceWarning
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
@@ -141,6 +148,7 @@ class MainActivitySmokeTest {
         try {
             prefs.onboardingComplete = true
             prefs.showToolbarLogButton = true
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = true
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             assertTrue(
@@ -166,6 +174,7 @@ class MainActivitySmokeTest {
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
             prefs.showToolbarLogButton = previousToolbarLogButton
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = previousUnsupportedDeviceWarning
         }
     }
 
@@ -176,6 +185,7 @@ class MainActivitySmokeTest {
         val prefs = Prefs(context)
         val previousOnboardingState = prefs.onboardingComplete
         val previousReplyStyle = prefs.replyStyle
+        val previousUnsupportedDeviceWarning = prefs.hasAcknowledgedUnsupportedDeviceWarning
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
@@ -183,6 +193,7 @@ class MainActivitySmokeTest {
         try {
             prefs.onboardingComplete = true
             prefs.replyStyle = ReplyStyle.Writing
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = true
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
             assertTrue(
@@ -214,6 +225,7 @@ class MainActivitySmokeTest {
             instrumentation.waitForIdleSync()
             prefs.onboardingComplete = previousOnboardingState
             prefs.replyStyle = previousReplyStyle
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = previousUnsupportedDeviceWarning
         }
     }
 
@@ -229,6 +241,7 @@ class MainActivitySmokeTest {
         val previousPersona = prefs.persona
         val previousActiveNotebookId = prefs.activeNotebookId
         val previousToolbarLogButton = prefs.showToolbarLogButton
+        val previousUnsupportedDeviceWarning = prefs.hasAcknowledgedUnsupportedDeviceWarning
         val launchIntent = Intent().setClassName(context.packageName, MainActivity::class.java.name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity: MainActivity? = null
@@ -238,6 +251,7 @@ class MainActivitySmokeTest {
             prefs.persona = Persona.default
             prefs.activeNotebookId = SMOKE_HISTORY_NOTEBOOK_ID
             prefs.showToolbarLogButton = true
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = true
             store.save(denseNotebook(Persona.default, SMOKE_HISTORY_NOTEBOOK_ID))
 
             activity = instrumentation.startActivitySync(launchIntent) as MainActivity
@@ -268,6 +282,7 @@ class MainActivitySmokeTest {
             prefs.persona = previousPersona
             prefs.activeNotebookId = previousActiveNotebookId
             prefs.showToolbarLogButton = previousToolbarLogButton
+            prefs.hasAcknowledgedUnsupportedDeviceWarning = previousUnsupportedDeviceWarning
             if (originalNotebook != null) {
                 notebookFile.parentFile?.mkdirs()
                 notebookFile.writeBytes(originalNotebook)

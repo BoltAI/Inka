@@ -16,6 +16,7 @@ import co.podzim.inka.BuildConfig
 import co.podzim.inka.R
 import co.podzim.inka.brain.ConversationEngine
 import co.podzim.inka.data.AiProvider
+import co.podzim.inka.device.DeviceCompatibility
 import co.podzim.inka.data.InkStroke
 import co.podzim.inka.data.NotebookStore
 import co.podzim.inka.data.Prefs
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
     private var lastCommitRequestedElapsedMs: Long? = null
     private var toolbarImmersive = false
     private var onboardingOverlay: OnboardingFlow? = null
+    private var unsupportedDeviceWarningOpen = false
 
     private val root: FrameLayout get() = pageSurfaceController.root
     private val topBar: LinearLayout get() = pageSurfaceController.topBar
@@ -256,6 +258,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
         if (firstRunOnboarding) {
             showOnboarding()
         }
+        root.post { showUnsupportedDeviceWarningIfNeeded() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -489,7 +492,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
                 settingsPanelOpen = settingsController.isOpen,
                 busy = busy,
                 historyOpen = historyController.isOpen,
-                modalOverlayOpen = onboardingOverlay != null,
+                modalOverlayOpen = onboardingOverlay != null || unsupportedDeviceWarningOpen,
             )
         ) {
             CaptureInputMode.Disabled -> controller.setInputEnabled(false)
@@ -501,6 +504,31 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
     private fun confirmBurnNotebookFromHistory() {
         alertDialogs.confirmBurnNotebookFromHistory {
             actionsController.burnNotebook(dissolveHistoryPage = true)
+        }
+    }
+
+    private fun showUnsupportedDeviceWarningIfNeeded() {
+        if (prefs.hasAcknowledgedUnsupportedDeviceWarning) return
+        if (DeviceCompatibility.isBooxDevice()) return
+
+        unsupportedDeviceWarningOpen = true
+        applyCaptureStateForCurrentUi()
+        val shown = alertDialogs.showUnsupportedDeviceWarning(
+            onContinue = {
+                prefs.hasAcknowledgedUnsupportedDeviceWarning = true
+                unsupportedDeviceWarningOpen = false
+                applyCaptureStateForCurrentUi()
+                addDebug("unsupported device warning acknowledged")
+            },
+            onQuit = {
+                unsupportedDeviceWarningOpen = false
+                applyCaptureStateForCurrentUi()
+                finish()
+            },
+        )
+        if (!shown) {
+            unsupportedDeviceWarningOpen = false
+            applyCaptureStateForCurrentUi()
         }
     }
 

@@ -48,6 +48,10 @@ class Prefs(
         get() = plain.getBoolean(KEY_ONBOARDING_COMPLETE, false)
         set(value) = plain.edit { putBoolean(KEY_ONBOARDING_COMPLETE, value) }
 
+    var hasAcknowledgedUnsupportedDeviceWarning: Boolean
+        get() = plain.getBoolean(KEY_ACKNOWLEDGED_UNSUPPORTED_DEVICE_WARNING, false)
+        set(value) = plain.edit { putBoolean(KEY_ACKNOWLEDGED_UNSUPPORTED_DEVICE_WARNING, value) }
+
     var provider: AiProvider
         get() = AiProvider.fromName(plain.getString(KEY_PROVIDER, AiProvider.Anthropic.name))
         set(value) = plain.edit { putString(KEY_PROVIDER, value.name) }
@@ -384,6 +388,7 @@ class Prefs(
         private const val OLD_DEFAULT_DISSOLVE_WIND_SHEAR_PX = 200
 
         private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"
+        private const val KEY_ACKNOWLEDGED_UNSUPPORTED_DEVICE_WARNING = "acknowledged_unsupported_device_warning"
         private const val KEY_PROVIDER = "provider"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_OPENAI_API_KEY = "openai_api_key"

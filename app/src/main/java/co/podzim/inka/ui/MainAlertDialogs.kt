@@ -37,6 +37,24 @@ internal class MainAlertDialogs(
         )
     }
 
+    fun showUnsupportedDeviceWarning(
+        onContinue: () -> Unit,
+        onQuit: () -> Unit,
+    ): Boolean {
+        if (activity.isFinishing || activity.isDestroyed) return false
+        AlertDialog.Builder(activity)
+            .setTitle("BOOX tablet required")
+            .setMessage(
+                "Inka only works properly on BOOX e-ink tablets. This device was not recognized as BOOX. " +
+                    "If you continue, pen input and e-ink refresh may not work, and the app may crash.",
+            )
+            .setPositiveButton("Continue anyway") { _, _ -> onContinue() }
+            .setNegativeButton("Quit") { _, _ -> onQuit() }
+            .setCancelable(false)
+            .show()
+        return true
+    }
+
     fun showWarning(title: String, message: String) {
         if (activity.isFinishing || activity.isDestroyed) return
         AlertDialog.Builder(activity)

@@ -109,6 +109,17 @@ class PrefsTest {
     }
 
     @Test
+    fun `unsupported device warning acknowledgement defaults off and persists`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertFalse(prefs.hasAcknowledgedUnsupportedDeviceWarning)
+
+        prefs.hasAcknowledgedUnsupportedDeviceWarning = true
+
+        assertTrue(Prefs(RuntimeEnvironment.getApplication()).hasAcknowledgedUnsupportedDeviceWarning)
+    }
+
+    @Test
     fun `ink fade style defaults to simple fade and persists dust fallback`() {
         val prefs = Prefs(RuntimeEnvironment.getApplication())
 
