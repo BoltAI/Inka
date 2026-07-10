@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Inka: write with the pen, the page writes back</title>
 <meta name="description" content="Inka is a pen-first AI journal experiment for BOOX e-ink tablets. Write with the pen, pause, and the page answers back in handwriting. Your notebook stays on your device and connects directly to your chosen AI provider.">
 <meta property="og:title" content="Inka: write with the pen, the page writes back">
@@ -13,12 +14,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,700;0,7..72,800;1,7..72,400;1,7..72,500&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
 <style>
   /*
-    Built for e-ink first: pure black on white, no animation, no fixed
-    elements, thick crisp borders, medium-large reading type. The only
-    JavaScript on the page drives the screenshot strip arrows and privacy-first
-    aggregate website analytics.
+    Built for e-ink first: high contrast, no animation, no fixed elements,
+    thick crisp borders, medium-large reading type, and a system-aware theme.
+    The only JavaScript on the page drives the screenshot strip arrows and
+    privacy-first aggregate website analytics.
   */
   :root {
+    color-scheme: light;
     --ink: #111111;
     --ink-soft: #444444;
     --ink-faint: #6e6e6e;
@@ -27,6 +29,18 @@
     --rule: #d9d9d6;
     --serif: "Literata", "Bookerly", Georgia, serif;
     --hand: "Caveat", cursive;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --ink: #f2efe6;
+      --ink-soft: #c9c4b7;
+      --ink-faint: #99958b;
+      --paper: #181816;
+      --paper-shade: #23231f;
+      --rule: #41413a;
+    }
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }

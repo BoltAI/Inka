@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Inka Privacy Policy</title>
 <meta name="description" content="Privacy policy for Inka, the pen-first AI journal for BOOX e-ink tablets. Notebook data stays on your device, and AI requests go directly to your chosen provider.">
 <meta name="robots" content="index, follow">
@@ -10,8 +11,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,700;0,7..72,800;1,7..72,400;1,7..72,500&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
 <style>
-  /* Same e-ink-first rules as the landing page: black on white, no animation, no JS. */
+  /* Same e-ink-first rules as the landing page: high contrast, system-aware, no animation. */
   :root {
+    color-scheme: light;
     --ink: #111111;
     --ink-soft: #444444;
     --ink-faint: #6e6e6e;
@@ -20,6 +22,18 @@
     --rule: #d9d9d6;
     --serif: "Literata", "Bookerly", Georgia, serif;
     --hand: "Caveat", cursive;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --ink: #f2efe6;
+      --ink-soft: #c9c4b7;
+      --ink-faint: #99958b;
+      --paper: #181816;
+      --paper-shade: #23231f;
+      --rule: #41413a;
+    }
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
