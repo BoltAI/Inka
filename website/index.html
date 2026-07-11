@@ -329,6 +329,44 @@
   .req .label { font-weight: 700; }
   .req .muted { color: var(--ink-soft); font-size: 1.05rem; }
 
+  /* other apps */
+  .other-apps {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    list-style: none;
+  }
+  .other-apps a {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 6.5rem;
+    padding: 1rem;
+    border: 2.5px solid var(--ink);
+    text-decoration: none;
+    background: var(--paper);
+  }
+  .other-apps a:hover { background: var(--paper-shade); }
+  .other-apps img {
+    display: block;
+    flex: none;
+    width: 4.25rem;
+    height: 4.25rem;
+    object-fit: contain;
+  }
+  .other-apps strong {
+    display: block;
+    font-size: 1.2rem;
+    line-height: 1.2;
+  }
+  .other-apps span {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
   /* ---------- footer ---------- */
 
   footer {
@@ -352,6 +390,7 @@
   @media (max-width: 40rem) {
     body { font-size: 1.15rem; }
     .features { grid-template-columns: 1fr; }
+    .other-apps { grid-template-columns: 1fr; }
     .masthead-links a { width: 2.4rem; height: 2.4rem; }
   }
 </style>
@@ -553,6 +592,37 @@
       <li><span class="label">Android 10 or newer.</span></li>
       <li><span class="label">An API key</span> <span class="muted">from OpenAI, Anthropic, or Groq. Set it up in a minute by scanning a QR code with your phone.</span></li>
       <li><span class="label">Network access</span> <span class="muted">for the AI replies. Handwriting recognition itself runs on the device.</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ other apps ============ -->
+  <section id="other-apps">
+    <h2><span class="section-no">⑥</span> Other apps by the same developer</h2>
+    <ul class="other-apps">
+      <li>
+        <a href="https://boltai.com">
+          <img src="media/apps/boltai.png" alt="" width="256" height="256" loading="lazy">
+          <span><strong>BoltAI</strong><span>Native AI workspace for Mac.</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="https://pdfpals.com">
+          <img src="media/apps/pdf-pals.png" alt="" width="256" height="256" loading="lazy">
+          <span><strong>PDF Pals</strong><span>Chat with any PDF on your Mac.</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="https://ktool.io">
+          <img src="media/apps/ktool.png" alt="" width="128" height="128" loading="lazy">
+          <span><strong>KTool</strong><span>Send articles and newsletters to Kindle.</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="https://shotsolve.com">
+          <img src="media/apps/shotsolve.png" alt="" width="128" height="128" loading="lazy">
+          <span><strong>ShotSolve</strong><span>Ask AI about anything on your screen.</span></span>
+        </a>
+      </li>
     </ul>
   </section>
 
