@@ -11,6 +11,8 @@
 - Primary verification command: `./gradlew test assembleRelease`.
 - For a broader local check, run `./gradlew test assembleRelease assembleDebugAndroidTest`.
 - For a connected BOOX tablet, run `ANDROID_SERIAL=<device-id> scripts/boox-smoke.sh`.
+- Keep production release artifacts limited to `arm64-v8a` and `armeabi-v7a`. `onyxsdk-pen` transitively includes `com.tencent:mmkv:1.0.19`; its x86_64 native library is not 16 KB ELF-aligned. Keep x86 ABIs debug-only unless the Onyx dependency or MMKV build is replaced with a verified 16 KB-compatible version.
+- Before uploading an APK to Google Play, run `scripts/build-release.sh`, check it with Android build-tools `zipalign -c -P 16 -v 4`, and verify that every packaged 64-bit native library has ELF `LOAD` alignment of at least `0x4000`.
 - BOOX pen latency, TouchHelper behavior, and e-ink refresh quality cannot be proven on a standard emulator. Keep emulator and fallback paths buildable, but verify pen behavior on real hardware before calling a pen-change done.
 - Do not stage or commit changes unless the user explicitly asks.
 
