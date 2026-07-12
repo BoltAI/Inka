@@ -124,6 +124,32 @@ app/build/outputs/bundle/release/app-release.aab
 
 Use the `.aab` for Google Play. Each Play upload needs a higher `versionCode` in `app/build.gradle.kts`.
 
+### Publish Sideload Release
+
+GitHub Actions can build the signed sideload APK and attach it, plus a SHA-256
+checksum, to a GitHub Release. Configure these repository Actions secrets:
+
+- `INKA_RELEASE_KEYSTORE_BASE64`: the release keystore encoded as a single-line Base64 value
+- `INKA_RELEASE_STORE_PASSWORD`
+- `INKA_RELEASE_KEY_ALIAS`
+- `INKA_RELEASE_KEY_PASSWORD`
+
+Create and push a version tag after committing the version bump:
+
+```bash
+git tag -a v0.1.5 -m "Inka 0.1.5"
+git push origin main v0.1.5
+```
+
+The `Sideload Release` workflow tests and builds the signed release, validates
+16 KB APK/native-library alignment, and publishes a versioned APK to GitHub
+Releases. It can also be run manually from GitHub Actions with an existing tag.
+
+Keep using the same signing key for every sideload release so Android can install
+updates over earlier sideloaded versions. A Play-installed build may need to be
+uninstalled before installing the sideload APK because Google Play applies its
+own app-signing key.
+
 ## Use
 
 - Write with the pen.

@@ -1,0 +1,135 @@
+name: Sideload Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          DISPATCH_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${DISPATCH_TAG}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Validate signing secrets
+        env:
+          INKA_RELEASE_KEYSTORE_BASE64: ${{ secrets.INKA_RELEASE_KEYSTORE_BASE64 }}
+          INKA_RELEASE_STORE_PASSWORD: ${{ secrets.INKA_RELEASE_STORE_PASSWORD }}
+          INKA_RELEASE_KEY_ALIAS: ${{ secrets.INKA_RELEASE_KEY_ALIAS }}
+          INKA_RELEASE_KEY_PASSWORD: ${{ secrets.INKA_RELEASE_KEY_PASSWORD }}
+        run: |
+          for name in \
+            INKA_RELEASE_KEYSTORE_BASE64 \
+            INKA_RELEASE_STORE_PASSWORD \
+            INKA_RELEASE_KEY_ALIAS \
+            INKA_RELEASE_KEY_PASSWORD
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required repository secret: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Prepare release signing
+        env:
+          INKA_RELEASE_KEYSTORE_BASE64: ${{ secrets.INKA_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          keystore="${RUNNER_TEMP}/inka-release-key.jks"
+          printf '%s' "${INKA_RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+          chmod 600 "${keystore}"
+          echo "INKA_RELEASE_STORE_FILE=${keystore}" >> "${GITHUB_ENV}"
+
+      - name: Build signed release
+        env:
+          INKA_RELEASE_STORE_PASSWORD: ${{ secrets.INKA_RELEASE_STORE_PASSWORD }}
+          INKA_RELEASE_KEY_ALIAS: ${{ secrets.INKA_RELEASE_KEY_ALIAS }}
+          INKA_RELEASE_KEY_PASSWORD: ${{ secrets.INKA_RELEASE_KEY_PASSWORD }}
+        run: scripts/build-release.sh
+
+      - name: Verify and name sideload APK
+        id: artifact
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)"
+          version_code="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts)"
+
+          if [[ "${RELEASE_TAG}" != "v${version_name}" && "${RELEASE_TAG}" != "v${version_name}-"* ]]; then
+            echo "Tag ${RELEASE_TAG} does not match versionName ${version_name}" >&2
+            exit 1
+          fi
+
+          apk="app/build/outputs/apk/release/app-release.apk"
+          zipalign="$(find "${ANDROID_HOME}/build-tools" -type f -name zipalign | sort -V | tail -1)"
+          "${zipalign}" -c -P 16 -v 4 "${apk}"
+
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "${tmp_dir}"' EXIT
+          while IFS= read -r library; do
+            output="${tmp_dir}/$(basename "${library}")"
+            unzip -p "${apk}" "${library}" > "${output}"
+            while IFS= read -r alignment; do
+              if (( alignment < 0x4000 )); then
+                echo "${library} has unsupported LOAD alignment ${alignment}" >&2
+                exit 1
+              fi
+            done < <(readelf -lW "${output}" | awk '$1 == "LOAD" { print $NF }')
+          done < <(unzip -Z1 "${apk}" 'lib/arm64-v8a/*.so')
+
+          output_dir="release-artifacts"
+          output_apk="${output_dir}/Inka-${version_name}-build-${version_code}.apk"
+          mkdir -p "${output_dir}"
+          cp "${apk}" "${output_apk}"
+          (
+            cd "${output_dir}"
+            sha256sum "$(basename "${output_apk}")" > "$(basename "${output_apk}").sha256"
+          )
+          echo "apk=${output_apk}" >> "${GITHUB_OUTPUT}"
+          echo "checksum=${output_apk}.sha256" >> "${GITHUB_OUTPUT}"
+          echo "version_name=${version_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          APK: ${{ steps.artifact.outputs.apk }}
+          CHECKSUM: ${{ steps.artifact.outputs.checksum }}
+          VERSION_NAME: ${{ steps.artifact.outputs.version_name }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${APK}" "${CHECKSUM}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "${APK}" "${CHECKSUM}" \
+              --title "Inka ${VERSION_NAME}" \
+              --generate-notes
+          fi
