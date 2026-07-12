@@ -120,6 +120,17 @@ class PrefsTest {
     }
 
     @Test
+    fun `reply pagination help acknowledgement defaults off and persists`() {
+        val prefs = Prefs(RuntimeEnvironment.getApplication())
+
+        assertFalse(prefs.hasSeenReplyPaginationHelp)
+
+        prefs.hasSeenReplyPaginationHelp = true
+
+        assertTrue(Prefs(RuntimeEnvironment.getApplication()).hasSeenReplyPaginationHelp)
+    }
+
+    @Test
     fun `ink fade style defaults to simple fade and persists dust fallback`() {
         val prefs = Prefs(RuntimeEnvironment.getApplication())
 

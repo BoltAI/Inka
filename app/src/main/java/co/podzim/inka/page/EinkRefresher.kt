@@ -1,14 +1,13 @@
 package co.podzim.inka.page
 
+import android.graphics.Rect
 import android.view.View
 import com.onyx.android.sdk.api.device.epd.EpdController
-import com.onyx.android.sdk.api.device.epd.UpdateOption
 import com.onyx.android.sdk.api.device.epd.UpdateMode
 
 class EinkRefresher {
-    fun configureAppRefreshMode() {
+    fun configureNewSurfaces() {
         runCatching {
-            EpdController.setAppScopeRefreshMode(UpdateOption.NORMAL)
             EpdController.useGCForNewSurface(true)
         }
     }
@@ -34,6 +33,12 @@ class EinkRefresher {
 
         if (!refreshed) {
             view.invalidate()
+        }
+    }
+
+    fun requestFastPartialRefresh(view: View, area: Rect) {
+        runCatching {
+            EpdController.invalidate(view, area.left, area.top, area.right, area.bottom, UpdateMode.DU)
         }
     }
 

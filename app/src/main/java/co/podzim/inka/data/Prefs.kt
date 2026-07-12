@@ -96,6 +96,10 @@ class Prefs(
         get() = plain.getBoolean(KEY_SEEN_DRAWING_MODE_HINT, false)
         set(value) = plain.edit { putBoolean(KEY_SEEN_DRAWING_MODE_HINT, value) }
 
+    var hasSeenReplyPaginationHelp: Boolean
+        get() = plain.getBoolean(KEY_SEEN_REPLY_PAGINATION_HELP, false)
+        set(value) = plain.edit { putBoolean(KEY_SEEN_REPLY_PAGINATION_HELP, value) }
+
     var customPrompt: String
         get() = plain.getString(KEY_CUSTOM_PROMPT, "").orEmpty()
         set(value) = plain.edit { putString(KEY_CUSTOM_PROMPT, value) }
@@ -403,6 +407,7 @@ class Prefs(
         private const val KEY_ACTIVE_NOTEBOOK_ID = "active_notebook_id"
         private const val KEY_SEEN_FADE_DISCLOSURE = "seen_fade_disclosure"
         private const val KEY_SEEN_DRAWING_MODE_HINT = "seen_drawing_mode_hint"
+        private const val KEY_SEEN_REPLY_PAGINATION_HELP = "seen_reply_pagination_help"
         private const val KEY_NORMALIZED_BLANK_CUSTOM_PERSONA = "normalized_blank_custom_persona"
         private const val KEY_INK_FADE_STYLE = "ink_fade_style"
         private const val KEY_REPLY_STYLE = "reply_style"

@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         ImmersiveSystemBars.applyStartupFlags(window)
         configureSystemBars()
-        einkRefresher.configureAppRefreshMode()
+        einkRefresher.configureNewSurfaces()
 
         prefs = Prefs(this)
         engine = ConversationEngine()
@@ -217,6 +217,7 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
             schedulePromptFade = { fadeController.schedulePromptFade(it) },
             loadActiveNotebook = { notebookController.loadActiveNotebook() },
             apiKeyForRequest = { apiKeyForRequest(it) },
+            onTextReplyCompleted = { showReplyPaginationHelpIfNeeded() },
             setStatus = { setStatus(it) },
             addDebug = { addDebug(it) },
         )
@@ -442,12 +443,16 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
     override fun onFingerSwipeLeft() {
         if (historyController.isOpen) {
             historyController.turnHistoryPage(1)
+        } else if (replyOverlay.turnPage(1)) {
+            setStatus(if (replyOverlay.isBlankContinuationPage) "New page" else "Reply")
         }
     }
 
     override fun onFingerSwipeRight() {
         if (historyController.isOpen) {
             historyController.turnHistoryPage(-1)
+        } else if (replyOverlay.turnPage(-1)) {
+            setStatus("Reply")
         }
     }
 
@@ -601,7 +606,14 @@ class MainActivity : ComponentActivity(), InkCaptureController.Callbacks {
         lifecycleScope.launch {
             replyOverlay.revealReply(text)
             addDebug("debug reply drawn, chars=${text.length}")
+            showReplyPaginationHelpIfNeeded()
         }
+    }
+
+    private fun showReplyPaginationHelpIfNeeded() {
+        if (prefs.hasSeenReplyPaginationHelp || replyOverlay.pageCount <= 1) return
+        prefs.hasSeenReplyPaginationHelp = true
+        alertDialogs.showReplyPaginationHelp()
     }
 
     private fun currentHandwritingFont(): HandwritingFont {

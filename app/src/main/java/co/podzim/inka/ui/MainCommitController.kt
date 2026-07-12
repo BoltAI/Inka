@@ -65,6 +65,7 @@ internal class MainCommitController(
     private val schedulePromptFade: (List<InkStroke>) -> Job,
     private val loadActiveNotebook: suspend () -> Notebook,
     private val apiKeyForRequest: (AiProvider) -> String?,
+    private val onTextReplyCompleted: () -> Unit,
     private val setStatus: (String) -> Unit,
     private val addDebug: (String) -> Unit,
 ) {
@@ -419,6 +420,7 @@ internal class MainCommitController(
         var replyStarted = false
         var streamedChars = 0
         var replyRenderMs = 0L
+        var textReplyCompleted = false
         val settings = ConversationSettings(
             apiKey = apiKey,
             model = prefs.model,
@@ -467,6 +469,7 @@ internal class MainCommitController(
                     setStatus("Reply")
                     replyOverlay().revealReply(result.text)
                 }
+                textReplyCompleted = generatedStrokes == null
                 val savedAt = System.currentTimeMillis()
                 val exchange = persistedNotebook.exchanges.firstOrNull { it.id == exchangeId }
                 if (exchange != null) {
@@ -501,6 +504,9 @@ internal class MainCommitController(
         strokeStore.clear()
         captureController()?.setInputEnabled(true)
         setBusy(false)
+        if (textReplyCompleted) {
+            onTextReplyCompleted()
+        }
     }
 
     private fun systemPromptForRequest(): String {

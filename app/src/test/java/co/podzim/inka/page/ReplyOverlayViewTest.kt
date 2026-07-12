@@ -1,19 +1,27 @@
 package co.podzim.inka.page
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.os.Looper
 import android.view.MotionEvent
+import android.view.View
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import org.robolectric.Shadows.shadowOf
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ReplyOverlayViewTest {
     @Test
     fun showReplyDrawsVisibleInkPixels() {
@@ -75,5 +83,83 @@ class ReplyOverlayViewTest {
 
         assertFalse(view.dispatchTouchEvent(event))
         event.recycle()
+    }
+
+    @Test
+    fun longReplyCreatesTurnableContinuationPagesAndBlankWritingPage() {
+        val view = ReplyOverlayView(RuntimeEnvironment.getApplication()).apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(420, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 420, 320)
+            showReply(List(300) { "word$it" }.joinToString(" "))
+        }
+
+        assertTrue("expected multiple pages, got ${view.pageCount} at ${view.width}x${view.height}", view.pageCount > 1)
+        assertEquals(0, view.pageIndex)
+        assertFalse(view.isBlankContinuationPage)
+
+        repeat(view.pageCount - 1) {
+            assertTrue(view.turnPage(1))
+        }
+        assertEquals(view.pageCount - 1, view.pageIndex)
+        assertTrue(view.turnPage(1))
+        assertTrue(view.isBlankContinuationPage)
+        assertFalse(view.turnPage(1))
+
+        assertTrue(view.turnPage(-1))
+        assertEquals(view.pageCount - 1, view.pageIndex)
+        assertFalse(view.isBlankContinuationPage)
+    }
+
+    @Test
+    fun streamingReplyFollowsNewestContinuationPage() {
+        val view = ReplyOverlayView(RuntimeEnvironment.getApplication()).apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(420, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 420, 320)
+            beginReply()
+        }
+
+        repeat(300) { index ->
+            view.appendReplyText("word$index ")
+        }
+
+        assertTrue("expected multiple pages, got ${view.pageCount} at ${view.width}x${view.height}", view.pageCount > 1)
+        assertEquals(view.pageCount - 1, view.pageIndex)
+    }
+
+    @Test
+    fun pageTurnsUseSystemRefreshModeInsteadOfForcedFastRefresh() {
+        var fastRefreshCount = 0
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val view = ReplyOverlayView(RuntimeEnvironment.getApplication()) { _, _ ->
+            fastRefreshCount++
+        }
+        activity.setContentView(view)
+        view.apply {
+            measure(
+                View.MeasureSpec.makeMeasureSpec(420, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, 420, 320)
+            showReply(List(300) { "word$it" }.joinToString(" "))
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(fastRefreshCount > 0)
+        fastRefreshCount = 0
+
+        assertTrue(view.turnPage(1))
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(0, fastRefreshCount)
+
+        view.appendReplyText("streamed")
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(1, fastRefreshCount)
     }
 }

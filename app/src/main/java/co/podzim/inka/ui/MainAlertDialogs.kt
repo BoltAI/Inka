@@ -37,6 +37,14 @@ internal class MainAlertDialogs(
         )
     }
 
+    fun showReplyPaginationHelp() {
+        showWarning(
+            title = "Reading a longer reply",
+            message = "Swipe left or right with a finger to move between pages. " +
+                "Swipe left past the final reply page to open a blank page and keep writing.",
+        )
+    }
+
     fun showUnsupportedDeviceWarning(
         onContinue: () -> Unit,
         onQuit: () -> Unit,
