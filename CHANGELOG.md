@@ -2,13 +2,29 @@
 
 ## Unreleased
 
-- Renamed the app to Inka.
-- Cleaned the repository for a public open-source release.
-- Added developer-gated experimental drawing replies.
-- Added notebook history reading and notebook burn flow.
-- Refined BOOX-style settings screens, AI provider/model configuration, and e-ink writing behavior.
+- Added swipeable pages for AI replies that are longer than the screen.
+- Added a blank continuation page after the final reply page so writing can continue.
+- Added a one-time navigation hint when a reply first spans multiple pages.
 
-## 0.1.0
+## 0.1.3 - 2026-07-10
+
+- Added a first-launch warning on non-BOOX Android devices.
+- Prepared the app for its production Google Play release.
+- Made Google Play the recommended installation method, with sideloading available as a fallback.
+
+## 0.1.2 - 2026-07-09
+
+- Renamed the Android package to `co.podzim.inka`.
+- Added phone-assisted API key setup using a QR code and a local setup page.
+- Added Google Play listing assets and open-testing release support.
+
+## 0.1.1 - 2026-07-09
+
+- Restored BOOX's low-latency pen path for responsive handwriting.
+- Improved onboarding, handwriting recognition, and ink clearing.
+- Added and refined the experimental hosted handwriting reply mode.
+
+## 0.1.0 - 2026-07-07
 
 - Initial BOOX pen-first diary app.
 - Added BOOX TouchHelper pen capture with emulator fallback drawing.

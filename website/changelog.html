@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Inka Changelog</title>
+<meta name="description" content="Release notes and recent changes for Inka, the pen-first AI journal for BOOX e-ink tablets.">
+<meta name="robots" content="index, follow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,700;0,7..72,800;1,7..72,400;1,7..72,500&amp;family=Caveat:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #111111;
+    --ink-soft: #444444;
+    --ink-faint: #6e6e6e;
+    --paper: #ffffff;
+    --paper-shade: #f2f2f0;
+    --rule: #d9d9d6;
+    --serif: "Literata", "Bookerly", Georgia, serif;
+    --hand: "Caveat", cursive;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --ink: #f2efe6;
+      --ink-soft: #c9c4b7;
+      --ink-faint: #99958b;
+      --paper: #181816;
+      --paper-shade: #23231f;
+      --rule: #41413a;
+    }
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--paper); }
+  body {
+    font-family: var(--serif);
+    font-size: 1.25rem;
+    line-height: 1.75;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: auto;
+  }
+  .page { max-width: 44rem; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+  a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+  a:hover { text-decoration-thickness: 3px; }
+  header.masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 3px solid var(--ink);
+  }
+  .wordmark { font-weight: 800; font-size: 1.6rem; letter-spacing: 0.02em; }
+  .wordmark a { text-decoration: none; }
+  .wordmark a:hover { text-decoration: underline; }
+  .masthead-links { display: flex; gap: 0.7rem; }
+  .masthead-links a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 2.5px solid var(--ink);
+    color: var(--ink);
+  }
+  .masthead-links svg { fill: currentColor; }
+  .masthead-links a:hover { background: var(--ink); color: var(--paper); }
+  h1 {
+    margin-top: 3rem;
+    font-size: clamp(2.1rem, 5vw, 2.8rem);
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .intro { margin-top: 0.8rem; color: var(--ink-soft); }
+  .release { margin-top: 3rem; }
+  .release h2 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 1.55rem;
+    line-height: 1.25;
+    padding-bottom: 0.55rem;
+    border-bottom: 1.5px solid var(--rule);
+  }
+  .release time {
+    flex: none;
+    color: var(--ink-faint);
+    font-size: 0.95rem;
+    font-weight: 500;
+  }
+  .release ul { margin: 1.2rem 0 0 1.35rem; }
+  .release li { padding-left: 0.35rem; }
+  .release li + li { margin-top: 0.65rem; }
+  .unreleased {
+    margin-top: 2.5rem;
+    padding: 1.5rem 1.75rem;
+    border: 3px solid var(--ink);
+    border-radius: 15px 255px 15px 225px / 225px 15px 255px 15px;
+    background: var(--paper-shade);
+  }
+  .unreleased.release h2 { border-bottom-color: var(--ink); }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 3px solid var(--ink);
+    font-size: 1.05rem;
+    color: var(--ink-soft);
+  }
+  footer .links a { margin-right: 1.5rem; }
+  footer .fine { margin-top: 1.25rem; font-size: 0.95rem; color: var(--ink-faint); }
+  @media (max-width: 40rem) {
+    body { font-size: 1.15rem; }
+    .masthead-links a { width: 2.4rem; height: 2.4rem; }
+    .release h2 { display: block; }
+    .release time { display: block; margin-top: 0.25rem; }
+  }
+</style>
+<!-- 100% privacy-first analytics -->
+<script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <div class="wordmark"><a href="./">Inka</a></div>
+    <nav class="masthead-links" aria-label="Useful links">
+      <a href="https://boltai.com" aria-label="BoltAI" title="BoltAI">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13.4 1 3.6 14.2h6.2L9.1 23l9.8-13.2h-6.2z"/>
+        </svg>
+      </a>
+      <a href="https://github.com/BoltAI/Inka" aria-label="GitHub" title="GitHub">
+        <svg width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+      </a>
+      <a href="https://x.com/daniel_nguyenx" aria-label="X (Twitter)" title="X (Twitter)">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+      </a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Changelog</h1>
+    <p class="intro">What has changed in Inka, from the first public build onward.</p>
+
+    <section class="release unreleased">
+      <h2><span>Unreleased</span></h2>
+      <ul>
+        <li>Added swipeable pages for AI replies that are longer than the screen.</li>
+        <li>Added a blank continuation page after the final reply page so writing can continue.</li>
+        <li>Added a one-time navigation hint when a reply first spans multiple pages.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2><span>0.1.3</span><time datetime="2026-07-10">July 10, 2026</time></h2>
+      <ul>
+        <li>Added a first-launch warning on non-BOOX Android devices.</li>
+        <li>Prepared the app for its production Google Play release.</li>
+        <li>Made Google Play the recommended installation method, with sideloading available as a fallback.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2><span>0.1.2</span><time datetime="2026-07-09">July 9, 2026</time></h2>
+      <ul>
+        <li>Renamed the Android package to <code>co.podzim.inka</code>.</li>
+        <li>Added phone-assisted API key setup using a QR code and a local setup page.</li>
+        <li>Added Google Play listing assets and open-testing release support.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2><span>0.1.1</span><time datetime="2026-07-09">July 9, 2026</time></h2>
+      <ul>
+        <li>Restored BOOX's low-latency pen path for responsive handwriting.</li>
+        <li>Improved onboarding, handwriting recognition, and ink clearing.</li>
+        <li>Added and refined the experimental hosted handwriting reply mode.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2><span>0.1.0</span><time datetime="2026-07-07">July 7, 2026</time></h2>
+      <ul>
+        <li>Initial BOOX pen-first diary app.</li>
+        <li>Added BOOX TouchHelper pen capture with emulator fallback drawing.</li>
+        <li>Added on-device ML Kit Digital Ink recognition and model download flow.</li>
+        <li>Added bring-your-own-key AI provider setup with encrypted local key storage where available.</li>
+        <li>Added handwritten replies, ink fade animation, onboarding, local notebook persistence, and BOOX smoke testing.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p class="links">
+      <a href="./">Back to Inka</a>
+      <a href="https://github.com/BoltAI/Inka/blob/main/CHANGELOG.md">View Markdown</a>
+      <a href="privacy/">Privacy</a>
+    </p>
+    <p class="fine">Brought to you by <a href="https://boltai.com">BoltAI</a>. Inka is not affiliated with Onyx or BOOX.</p>
+  </footer>
+</div>
+</body>
+</html>
