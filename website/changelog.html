@@ -99,14 +99,14 @@
   .release ul { margin: 1.2rem 0 0 1.35rem; }
   .release li { padding-left: 0.35rem; }
   .release li + li { margin-top: 0.65rem; }
-  .unreleased {
+  .latest {
     margin-top: 2.5rem;
     padding: 1.5rem 1.75rem;
     border: 3px solid var(--ink);
     border-radius: 15px 255px 15px 225px / 225px 15px 255px 15px;
     background: var(--paper-shade);
   }
-  .unreleased.release h2 { border-bottom-color: var(--ink); }
+  .latest.release h2 { border-bottom-color: var(--ink); }
   footer {
     margin-top: 4rem;
     padding-top: 1.5rem;
@@ -153,8 +153,8 @@
     <h1>Changelog</h1>
     <p class="intro">What has changed in Inka, from the first public build onward.</p>
 
-    <section class="release unreleased">
-      <h2><span>Unreleased</span></h2>
+    <section class="release latest">
+      <h2><span>0.1.4</span><time datetime="2026-07-12">July 12, 2026</time></h2>
       <ul>
         <li>Added swipeable pages for AI replies that are longer than the screen.</li>
         <li>Added a blank continuation page after the final reply page so writing can continue.</li>

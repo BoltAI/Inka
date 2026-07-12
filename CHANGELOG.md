@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.4 - 2026-07-12
+
 - Added swipeable pages for AI replies that are longer than the screen.
 - Added a blank continuation page after the final reply page so writing can continue.
 - Added a one-time navigation hint when a reply first spans multiple pages.

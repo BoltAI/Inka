@@ -31,8 +31,8 @@ android {
         applicationId = "co.podzim.inka"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 6
+        versionName = "0.1.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["dissolveLabEnabled"] = "false"
     }
@@ -55,6 +55,9 @@ android {
         release {
             isMinifyEnabled = false
             manifestPlaceholders["dissolveLabEnabled"] = "false"
+            ndk {
+                abiFilters += setOf("armeabi-v7a", "arm64-v8a")
+            }
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
