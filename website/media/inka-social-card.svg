@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="rules" width="1200" height="46" patternUnits="userSpaceOnUse">
+      <path d="M0 45.5H1200" stroke="#d8d4ca" stroke-width="1"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="10" dy="12" stdDeviation="0" flood-color="#171715" flood-opacity="1"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="630" fill="#f5f2e9"/>
+  <rect width="1200" height="630" fill="url(#rules)" opacity="0.75"/>
+  <path d="M43 28H1157V602H43Z" fill="none" stroke="#171715" stroke-width="4"/>
+
+  <g fill="#171715">
+    <text x="82" y="112" font-family="Georgia, serif" font-size="43" font-weight="700" letter-spacing="7">INKA</text>
+    <path d="M82 132H704" stroke="#171715" stroke-width="4"/>
+
+    <text x="82" y="239" font-family="Georgia, serif" font-size="72" font-weight="700">Write with</text>
+    <text x="82" y="324" font-family="Georgia, serif" font-size="72" font-weight="700">the pen.</text>
+    <text x="82" y="407" font-family="Georgia, serif" font-size="48" font-style="italic">The page writes back.</text>
+
+    <rect x="82" y="482" width="624" height="58" fill="#171715"/>
+    <text x="110" y="520" fill="#f5f2e9" font-family="Georgia, serif" font-size="19" font-weight="700" letter-spacing="2.2">AI JOURNAL FOR BOOX E-INK TABLETS</text>
+    <text x="82" y="578" font-family="Georgia, serif" font-size="18" letter-spacing="1.2">inka.page  ·  privacy first  ·  open source</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="786" y="28" width="348" height="574" rx="7" fill="#ffffff" stroke="#171715" stroke-width="4"/>
+    <image href="../screenshots/02-live-demo.png" x="810" y="48" width="300" height="400" preserveAspectRatio="xMidYMin meet"/>
+    <path d="M810 469H1110" stroke="#171715" stroke-width="2"/>
+    <text x="960" y="510" fill="#171715" font-family="Georgia, serif" font-size="18" font-style="italic" text-anchor="middle">your words in</text>
+    <text x="960" y="543" fill="#171715" font-family="Georgia, serif" font-size="18" font-style="italic" text-anchor="middle">handwritten answers out</text>
+  </g>
+
+  <path d="M674 441c25-21 48-19 67 5 12 16 17 44 1 58-15 13-38 2-36-17 2-24 31-38 61-28" fill="none" stroke="#171715" stroke-width="5" stroke-linecap="round"/>
+  <path d="m756 447 17 13-19 11" fill="none" stroke="#171715" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
