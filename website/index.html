@@ -176,29 +176,36 @@
 
   .cta-note {
     margin-top: 0.9rem;
-    font-family: var(--hand);
-    font-size: 1.3rem;
+    font-size: 1rem;
     color: var(--ink-soft);
   }
 
   /* ---------- hero demo video ---------- */
 
   .demo {
-    margin: 2.75rem auto 0;
-    max-width: 21rem;
+    margin: 2.75rem 0 0;
+    width: 100%;
+  }
+
+  .demo-player {
+    width: 100%;
+    height: 37.333rem;
+    border: 3px solid var(--ink);
+    background: #000;
   }
 
   .demo video {
     display: block;
     width: 100%;
-    height: auto;
-    border: 3px solid var(--ink);
+    height: 100%;
+    object-fit: contain;
+    background: #000;
   }
 
   .demo-caption {
     margin-top: 0.6rem;
-    font-family: var(--hand);
-    font-size: 1.3rem;
+    font-size: 1rem;
+    font-style: italic;
     color: var(--ink-soft);
     text-align: center;
   }
@@ -216,20 +223,12 @@
     border-bottom: 3px solid var(--ink);
   }
 
-  h2 .section-no {
-    font-family: var(--hand);
-    font-weight: 600;
-    font-size: 1.2em;
-    margin-right: 0.4rem;
-    color: var(--ink-soft);
-  }
-
   p + p { margin-top: 1.1rem; }
 
   .aside {
-    font-family: var(--hand);
-    font-size: 1.45rem;
-    line-height: 1.4;
+    font-size: 1.15rem;
+    font-style: italic;
+    line-height: 1.6;
     color: var(--ink-soft);
     margin: 1.5rem 0 0;
     padding-left: 1.1rem;
@@ -288,8 +287,8 @@
     margin-bottom: 1rem;
   }
   .shots-note {
-    font-family: var(--hand);
-    font-size: 1.45rem;
+    font-size: 1.05rem;
+    font-style: italic;
     color: var(--ink-soft);
   }
   .shots-nav { display: flex; gap: 0.6rem; }
@@ -325,8 +324,8 @@
     border: 2.5px solid var(--ink);
   }
   .shot figcaption {
-    font-family: var(--hand);
-    font-size: 1.25rem;
+    font-size: 1rem;
+    font-style: italic;
     color: var(--ink-soft);
     text-align: center;
     margin-top: 0.4rem;
@@ -412,6 +411,10 @@
     .other-apps { grid-template-columns: 1fr; }
     .masthead-links a { width: 2.4rem; height: 2.4rem; }
   }
+
+  @media (max-width: 24rem) {
+    .demo-player { height: calc(177.778vw - 5.333rem); }
+  }
 </style>
 <!-- Privacy-first aggregate analytics -->
 <script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
@@ -469,20 +472,22 @@
     <p class="cta-note">→ free, open source, bring your own AI key</p>
 
     <figure class="demo">
-      <video controls muted playsinline loop preload="metadata"
-             poster="media/inka-ai-journal-boox-eink-demo-poster.jpg"
-             width="720" height="1280">
-        <source src="media/inka-ai-journal-boox-eink-demo.mp4" type="video/mp4">
-        Your browser can't play this video.
-        <a href="media/inka-ai-journal-boox-eink-demo.mp4">Download the demo</a> instead.
-      </video>
+      <div class="demo-player">
+        <video controls muted playsinline loop preload="metadata"
+               poster="media/inka-ai-journal-boox-eink-demo-poster.jpg"
+               width="720" height="1280">
+          <source src="media/inka-ai-journal-boox-eink-demo.mp4" type="video/mp4">
+          Your browser can't play this video.
+          <a href="media/inka-ai-journal-boox-eink-demo.mp4">Download the demo</a> instead.
+        </video>
+      </div>
       <figcaption class="demo-caption">18 seconds of the page writing back ↑</figcaption>
     </figure>
   </section>
 
   <!-- ============ how it works ============ -->
   <section id="how">
-    <h2><span class="section-no">①</span> How it works</h2>
+    <h2>How it works</h2>
     <ol class="steps">
       <li><div class="step-body"><strong>Write.</strong> Use the BOOX pen like you would in any paper notebook.</div></li>
       <li><div class="step-body"><strong>Pause.</strong> Rest your hand for a moment. On-device handwriting recognition reads what you wrote and sends the text to your chosen AI provider, with your own API key.</div></li>
@@ -492,20 +497,14 @@
 
   <!-- ============ features ============ -->
   <section id="features">
-    <h2><span class="section-no">②</span> What's in the box</h2>
+    <h2>What's in the box</h2>
     <ul class="features">
-      <li>Pen-first writing on BOOX tablets</li>
+      <li>Pen-first writing tuned for BOOX tablets</li>
       <li>Handwritten replies, right on the page</li>
-      <li>Word-by-word reply animation</li>
-      <li>Ink fade &amp; dissolve after you finish</li>
-      <li>Local notebook history</li>
-      <li>Built-in writing personas</li>
-      <li>Reader-style UI made for e-ink</li>
       <li>On-device handwriting recognition</li>
+      <li>Ink fade &amp; dissolve when you finish</li>
+      <li>Local notebook history</li>
       <li>Bring your own OpenAI, Anthropic, or Groq key</li>
-      <li>Phone-assisted QR setup for API keys</li>
-      <li>Adjustable reply handwriting style</li>
-      <li>Experimental neural handwriting synthesis</li>
     </ul>
 
     <div class="shots">
@@ -565,7 +564,7 @@
 
   <!-- ============ why ============ -->
   <section id="why">
-    <h2><span class="section-no">③</span> Why?</h2>
+    <h2>Why?</h2>
     <p>
       Hi, I'm <a href="https://x.com/daniel_nguyenx">Daniel</a>. Inspired by
       Maxime Rivest's <a href="https://x.com/MaximeRivest/status/2073544461473169432">Riddle</a>,
@@ -580,15 +579,14 @@
       of the old thoughts can gently fade away.
     </p>
     <p class="aside">
-      Honestly? It mostly exists because it was fun to build, and because I
-      get to wow my son with a magic notebook. This is a tinkering project,
-      not a startup.
+      I built Inka for fun, and as an opportunity to learn how to develop for
+      my e-ink tablet.
     </p>
   </section>
 
   <!-- ============ privacy ============ -->
   <section id="privacy">
-    <h2><span class="section-no">④</span> Privacy first</h2>
+    <h2>Privacy first</h2>
     <div class="plain-box">
       <p>
         Your notebook lives in private storage on your tablet. Your API key is
@@ -606,7 +604,7 @@
 
   <!-- ============ requirements ============ -->
   <section id="requirements">
-    <h2><span class="section-no">⑤</span> What you'll need</h2>
+    <h2>What you'll need</h2>
     <ul class="req">
       <li><span class="label">A BOOX e-ink tablet.</span> <span class="muted">Built and tested on the BOOX Note Air 5C. Other Android tablets may open it, but the pen feel and e-ink refresh are the whole point.</span></li>
       <li><span class="label">Android 10 or newer.</span></li>
@@ -617,7 +615,7 @@
 
   <!-- ============ other apps ============ -->
   <section id="other-apps">
-    <h2><span class="section-no">⑥</span> Other apps by the same developer</h2>
+    <h2>Other apps by the same developer</h2>
     <ul class="other-apps">
       <li>
         <a href="https://boltai.com">
